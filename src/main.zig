@@ -1,10 +1,13 @@
 const std = @import("std");
 const zm = @import("zmath");
 const print = std.io.getStdOut().writer().print;
-const print_err = std.io.getStdErr().writer().print;
+const printErr = std.io.getStdErr().writer().print;
 const Vector = std.meta.Vector;
-
+const Random = std.rand.Random;
+const DefaultRandom = std.rand.DefaultPrng;
 const Ray = @import("ray.zig").Ray;
+
+var rng: Random = undefined;
 
 const Pixel = struct {
     r: u8,
@@ -12,19 +15,19 @@ const Pixel = struct {
     b: u8,
 };
 
-fn output_ppm_header(size: Vector(2, u32)) anyerror!void {
+fn outputPPMHeader(size: Vector(2, u32)) anyerror!void {
     try print("P3\n", .{});
     try print("{} {}\n", .{ size[0], size[1] });
     try print("{}\n", .{255});
 }
 
-fn output_pixels(size: Vector(2, u32), pixels: []Pixel) anyerror!void {
-    const pixel_count = size[0] * size[1];
+fn outputPixels(size: Vector(2, u32), pixels: []Pixel) anyerror!void {
+    const pixelCount = size[0] * size[1];
 
     var x: usize = 0;
     var y: usize = size[1];
     while (y > 0) {
-        try print_err("Rendering: {}/{}\n", .{ x * (size[1] - y), pixel_count });
+        try printErr("Writing: {}/{}\n", .{ x * (size[1] - y), pixelCount });
 
         y -= 1;
         x = 0;
@@ -35,7 +38,7 @@ fn output_pixels(size: Vector(2, u32), pixels: []Pixel) anyerror!void {
     }
 }
 
-fn background(r: Ray) Pixel {
+fn background(r: Ray) Vector(3, f32) {
     var y = zm.normalize3(r.dir)[1];
     // -1; 1 -> 0; 1
     y = (y + 1.0) * 0.5;
@@ -44,16 +47,21 @@ fn background(r: Ray) Pixel {
 
     const white = Vector(3, f32){ 1.0, 1.0, 1.0 };
     const blue = Vector(3, f32){ 0.5, 0.7, 1.0 };
-    var color = zm.lerp(white, blue, percentage);
 
-    return Pixel{ .r = @truncate(u8, @floatToInt(u32, color[0] * 255.0)), .g = @truncate(u8, @floatToInt(u32, color[1] * 255.0)), .b = @truncate(u8, @floatToInt(u32, color[2] * 255.0)) };
+    return zm.lerp(white, blue, percentage);
 }
 
-const Hittable = struct {
-    testHitFn: fn (*const Hittable, Ray) ?Hit,
+const Hit = struct {
+    location: Vector(4, f32),
+    normal: Vector(4, f32),
+    rayFactor: f32,
+};
 
-    pub fn testHit(self: *const Hittable, r: Ray) ?Hit {
-        return self.testHitFn(self, r);
+const Hittable = struct {
+    testHitFn: fn (*const Hittable, Ray, f32, f32) ?Hit,
+
+    pub fn testHit(self: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
+        return self.testHitFn(self, r, minDist, maxDist);
     }
 };
 
@@ -66,109 +74,124 @@ const Sphere = struct {
         return Sphere{ .center = center, .radius = radius, .hittable = Hittable{ .testHitFn = testHit } };
     }
 
-    pub fn testHit(hittable: *const Hittable, r: Ray) ?Hit {
+    pub fn testHit(hittable: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
         const self = @fieldParentPtr(Sphere, "hittable", hittable);
 
-        var to_origin = r.origin - self.center;
+        var toOrigin = r.origin - self.center;
         var a = zm.dot3(r.dir, r.dir)[1];
-        var b = 2.0 * zm.dot3(r.dir, to_origin)[1];
-        var c = zm.dot3(to_origin, to_origin)[1] - self.radius * self.radius;
+        var b = 2.0 * zm.dot3(r.dir, toOrigin)[1];
+        var c = zm.dot3(toOrigin, toOrigin)[1] - self.radius * self.radius;
 
         var discriminant = b * b - 4 * a * c;
         if (discriminant < 0)
             return null;
 
         var x = (-b - @sqrt(discriminant)) / (2.0 * a);
+        if (x < minDist or x > maxDist) {
+            x = (-b + @sqrt(discriminant)) / (2.0 * a);
+            if (x < minDist or x > maxDist) {
+                return null;
+            }
+        }
+
         var location = r.at(x);
         var normal = zm.normalize3(location - self.center);
-        return Hit{ .location = location, .normal = normal, .ray_factor = x };
+        return Hit{ .location = location, .normal = normal, .rayFactor = x };
     }
 };
 
-const Hit = struct {
-    location: Vector(4, f32),
-    normal: Vector(4, f32),
-    ray_factor: f32,
-};
+fn randomInUnitSphere() Vector(4, f32) {
+    while (true) {
+        var vec = Vector(4, f32){ rng.float(f32), rng.float(f32), rng.float(f32), 0 };
+        if (zm.lengthSq3(vec)[0] >= 1.0) continue;
+        return vec;
+    }
+}
 
-const NO_HIT: f32 = -1.0;
-fn hit_sphere(r: Ray, sphere_center: Vector(4, f32), radius: f32) ?Hit {
-    var to_origin = r.origin - sphere_center;
-    var a = zm.dot3(r.dir, r.dir)[1];
-    var b = 2.0 * zm.dot3(r.dir, to_origin)[1];
-    var c = zm.dot3(to_origin, to_origin)[1] - radius * radius;
+fn traceRay(ray: Ray, spheres: []Sphere, remainingBounces: u32) Vector(3, f32) {
+    if (remainingBounces <= 0) {
+        return Vector(3, f32){ 0.0, 0.0, 0.0 };
+    }
 
-    var discriminant = b * b - 4 * a * c;
-    if (discriminant < 0)
-        return null;
+    var nearestHit: ?Hit = null;
+    for (spheres) |sphere| {
+        var maxDistance: f32 = 1000000.0;
+        if (nearestHit) |hit| {
+            maxDistance = hit.rayFactor;
+        }
 
-    var x = (-b - @sqrt(discriminant)) / (2.0 * a);
-    var location = r.at(x);
-    var normal = zm.normalize3(location - sphere_center);
-    return Hit{ .location = location, .normal = normal, .ray_factor = x };
+        var maybeHit = sphere.hittable.testHit(ray, 0, maxDistance);
+        if (maybeHit) |hit| {
+            nearestHit = hit;
+        }
+    }
+
+    if (nearestHit) |hit| {
+        var newDir = hit.location + hit.normal + randomInUnitSphere();
+        var bouncedRay = Ray{ .origin = hit.location, .dir = zm.normalize3(newDir) };
+
+        return Vector(3, f32){ 0.5, 0.5, 0.5 } * traceRay(bouncedRay, spheres, remainingBounces - 1);
+    } else {
+        return background(ray);
+    }
 }
 
 pub fn main() anyerror!void {
-    const aspect_ratio = 16.0 / 9.0;
-    const width = 512;
-    const size = Vector(2, u32){ width, width / aspect_ratio };
-    const pixel_count = size[0] * size[1];
+    rng = DefaultRandom.init(0).random();
 
-    const viewport_height = 2.0;
-    const viewport_size = Vector(2, f32){ viewport_height * aspect_ratio, viewport_height };
-    const focal_length = 1.0;
+    const aspectRatio = 16.0 / 9.0;
+    const width = 512;
+    const size = Vector(2, u32){ width, width / aspectRatio };
+    const pixelCount = size[0] * size[1];
+    const spp = 64;
+    const maxBounces = 16;
+
+    const viewportHeight = 2.0;
+    const viewportSize = Vector(2, f32){ viewportHeight * aspectRatio, viewportHeight };
+    const focalLength = 1.0;
 
     const origin = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
-    const forward = Vector(4, f32){ 0.0, 0.0, -focal_length, 0.0 };
-    const right = Vector(4, f32){ viewport_size[0], 0.0, 0.0, 0.0 };
-    const up = Vector(4, f32){ 0.0, viewport_size[1], 0.0, 0.0 };
-    const lower_left = origin - (right / Vector(4, f32){ 2.0, 2.0, 2.0, 2.0 }) - (up / Vector(4, f32){ 2.0, 2.0, 2.0, 2.0 }) + forward;
+    const forward = Vector(4, f32){ 0.0, 0.0, -focalLength, 0.0 };
+    const right = Vector(4, f32){ viewportSize[0], 0.0, 0.0, 0.0 };
+    const up = Vector(4, f32){ 0.0, viewportSize[1], 0.0, 0.0 };
+    const lowerLeft = origin - (right / Vector(4, f32){ 2.0, 2.0, 2.0, 2.0 }) - (up / Vector(4, f32){ 2.0, 2.0, 2.0, 2.0 }) + forward;
 
     var spheres = [_]Sphere{
-        Sphere.init(Vector(4, f32){ 0.0, -100.5, -1.0, 0.0 }, 100),
         Sphere.init(Vector(4, f32){ 0.0, 0.0, -1.0, 0.0 }, 0.5),
+        Sphere.init(Vector(4, f32){ 0.0, -100.5, -1.0, 0.0 }, 100),
     };
-    _ = spheres;
 
-    try output_ppm_header(size);
+    try outputPPMHeader(size);
 
-    var img: [pixel_count]Pixel = undefined;
+    var img: [pixelCount]Pixel = undefined;
     var x: usize = 0;
     var y: usize = size[1];
 
     while (y > 0) {
+        try printErr("Rendering: {}/{} at {}spp\n", .{ x * (size[1] - y), pixelCount, spp });
         y -= 1;
         x = 0;
         while (x < size[0]) : (x += 1) {
-            var u = @intToFloat(f32, x) / @intToFloat(f32, size[0]);
-            var v = @intToFloat(f32, y) / @intToFloat(f32, size[1]);
+            var sample: u32 = 0;
+            var color = Vector(3, f32){ 0.0, 0.0, 0.0 };
 
-            var dir = lower_left + @splat(4, u) * right + @splat(4, v) * up - origin;
-            var ray = Ray{ .origin = origin, .dir = dir };
+            while (sample < spp) : (sample += 1) {
+                var u = (@intToFloat(f32, x) + rng.float(f32)) / @intToFloat(f32, size[0]);
+                var v = (@intToFloat(f32, y) + rng.float(f32)) / @intToFloat(f32, size[1]);
 
-            var color = background(ray);
-            var nearestHit: ?Hit = null;
-            for (spheres) |sphere| {
-                var maybe_hit = sphere.hittable.testHit(ray);
-                if (maybe_hit) |hit| {
-                    const nearerHit: bool = nearestHit == null or hit.ray_factor < nearestHit.?.ray_factor;
-                    if (nearerHit) {
-                        nearestHit = hit;
-                    }
-                }
+                var dir = lowerLeft + @splat(4, u) * right + @splat(4, v) * up - origin;
+                var ray = Ray{ .origin = origin, .dir = dir };
+
+                color += traceRay(ray, &spheres, maxBounces);
             }
 
-            if (nearestHit) |hit| {
-                color = Pixel{
-                    .r = @truncate(u8, @floatToInt(u32, (hit.normal[0] + 1.0) * 0.5 * 255)),
-                    .g = @truncate(u8, @floatToInt(u32, (hit.normal[1] + 1.0) * 0.5 * 255)),
-                    .b = @truncate(u8, @floatToInt(u32, (hit.normal[2] + 1.0) * 0.5 * 255)),
-                };
-            }
-
-            img[y * width + x] = color;
+            img[y * width + x] = Pixel{
+                .r = @truncate(u8, @floatToInt(u32, (color[0] / spp) * 255)),
+                .g = @truncate(u8, @floatToInt(u32, (color[1] / spp) * 255)),
+                .b = @truncate(u8, @floatToInt(u32, (color[2] / spp) * 255)),
+            };
         }
     }
 
-    try output_pixels(size, &img);
+    try outputPixels(size, &img);
 }
