@@ -1,5 +1,6 @@
 const std = @import("std");
 const zm = @import("zmath");
+const pow = std.math.pow;
 const print = std.io.getStdOut().writer().print;
 const printErr = std.io.getStdErr().writer().print;
 const Vector = std.meta.Vector;
@@ -120,7 +121,7 @@ fn traceRay(ray: Ray, spheres: []Sphere, remainingBounces: u32) Vector(3, f32) {
             maxDistance = hit.rayFactor;
         }
 
-        var maybeHit = sphere.hittable.testHit(ray, 0, maxDistance);
+        var maybeHit = sphere.hittable.testHit(ray, 0.001, maxDistance);
         if (maybeHit) |hit| {
             nearestHit = hit;
         }
@@ -145,6 +146,7 @@ pub fn main() anyerror!void {
     const pixelCount = size[0] * size[1];
     const spp = 64;
     const maxBounces = 16;
+    const gamma = 2.2;
 
     const viewportHeight = 2.0;
     const viewportSize = Vector(2, f32){ viewportHeight * aspectRatio, viewportHeight };
@@ -186,9 +188,9 @@ pub fn main() anyerror!void {
             }
 
             img[y * width + x] = Pixel{
-                .r = @truncate(u8, @floatToInt(u32, (color[0] / spp) * 255)),
-                .g = @truncate(u8, @floatToInt(u32, (color[1] / spp) * 255)),
-                .b = @truncate(u8, @floatToInt(u32, (color[2] / spp) * 255)),
+                .r = @truncate(u8, @floatToInt(u32, pow(f32, color[0] / spp, 1.0 / gamma) * 255)),
+                .g = @truncate(u8, @floatToInt(u32, pow(f32, color[1] / spp, 1.0 / gamma) * 255)),
+                .b = @truncate(u8, @floatToInt(u32, pow(f32, color[2] / spp, 1.0 / gamma) * 255)),
             };
         }
     }
