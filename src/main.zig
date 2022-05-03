@@ -376,14 +376,13 @@ pub fn main() anyerror!void {
     //const width = 3840;
     const size = Vector(2, u32){ width, width / aspectRatio };
     const pixelCount = size[0] * size[1];
-    const spp = 512;
-    const maxBounces = 64;
+    const spp = 128;
+    const maxBounces = 16;
     const gamma = 2.2;
 
     const pi: f32 = 3.14159265359;
     const cameraPos = Vector(4, f32){ 13.0, 2.0, 3.0, 0.0 };
     const lookTarget = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
-
     var camera = Camera.init(cameraPos, lookTarget, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }, pi / 8.0, aspectRatio, 0.1, 10.0);
 
     const materialCount = 16;
@@ -485,7 +484,8 @@ pub fn main() anyerror!void {
     try printErr("Writing...\n", .{});
     try outputPPMHeader(size);
     var img: []Pixel = try allocator.alloc(Pixel, pixelCount);
-    defer allocator.free(accumulatedPixels);
+    defer allocator.free(img);
+
     var y: usize = size[1];
     while (y > 0) {
         y -= 1;
