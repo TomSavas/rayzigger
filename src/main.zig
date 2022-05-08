@@ -1,18 +1,24 @@
 const std = @import("std");
 const zm = @import("zmath");
 const pow = std.math.pow;
+const PI = std.math.pi;
 const print = std.io.getStdOut().writer().print;
 const printErr = std.io.getStdErr().writer().print;
 const Vector = std.meta.Vector;
 const Random = std.rand.Random;
 const DefaultRandom = std.rand.DefaultPrng;
-const Ray = @import("ray.zig").Ray;
 const ArrayList = std.ArrayList;
 const Thread = std.Thread;
 const OS = std.os;
 const Mutex = Thread.Mutex;
 
-var rng: Random = undefined;
+const Sphere = @import("hittables.zig").Sphere;
+const Ray = @import("ray.zig").Ray;
+const Hit = @import("ray.zig").Hit;
+const Material = @import("materials.zig").Material;
+const LambertianMat = @import("materials.zig").LambertianMat;
+const MetalMat = @import("materials.zig").MetalMat;
+const DielectricMat = @import("materials.zig").DielectricMat;
 
 const Pixel = struct {
     r: u8,
@@ -52,190 +58,7 @@ fn background(r: Ray) Vector(3, f32) {
     return zm.lerp(white, blue, percentage);
 }
 
-const Hit = struct {
-    location: Vector(4, f32),
-    normal: Vector(4, f32),
-    rayFactor: f32,
-    hitFrontFace: bool,
-};
-
-const Hittable = struct {
-    testHitFn: fn (*const Hittable, Ray, f32, f32) ?Hit,
-
-    pub fn testHit(self: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
-        return self.testHitFn(self, r, minDist, maxDist);
-    }
-};
-
-const ScatteredRay = struct {
-    ray: Ray,
-    attenuation: Vector(3, f32),
-};
-
-const Material = struct {
-    scatterFn: fn (*const Material, *const Hit, Ray) ScatteredRay,
-
-    pub fn scatter(self: *const Material, hit: *const Hit, r: Ray) ScatteredRay {
-        return self.scatterFn(self, hit, r);
-    }
-};
-
-const LambertianMat = struct {
-    color: Vector(3, f32),
-    material: Material,
-
-    pub fn init(color: Vector(3, f32)) LambertianMat {
-        return LambertianMat{ .color = color, .material = Material{ .scatterFn = scatter } };
-    }
-
-    pub fn scatter(material: *const Material, hit: *const Hit, _: Ray) ScatteredRay {
-        const self = @fieldParentPtr(LambertianMat, "material", material);
-
-        var newDir = hit.location + hit.normal + randomInUnitHemisphere(hit.normal);
-        var scatteredRay = Ray{ .origin = hit.location, .dir = zm.normalize3(newDir) };
-        return ScatteredRay{ .ray = scatteredRay, .attenuation = self.color };
-    }
-};
-
-fn reflect(vec: Vector(4, f32), normal: Vector(4, f32)) Vector(4, f32) {
-    var a = 2.0 * zm.dot3(vec, normal)[0];
-    return vec - normal * @splat(4, a);
-}
-
-const MetalMat = struct {
-    color: Vector(3, f32),
-    roughness: f32,
-    material: Material,
-
-    pub fn init(color: Vector(3, f32), roughness: f32) MetalMat {
-        return MetalMat{ .color = color, .roughness = roughness, .material = Material{ .scatterFn = scatter } };
-    }
-
-    pub fn scatter(material: *const Material, hit: *const Hit, r: Ray) ScatteredRay {
-        const self = @fieldParentPtr(MetalMat, "material", material);
-
-        var newDir = reflect(r.dir, hit.normal) + @splat(4, self.roughness) * randomInUnitSphere();
-        var scatteredRay = Ray{ .origin = hit.location, .dir = zm.normalize3(newDir) };
-        return ScatteredRay{ .ray = scatteredRay, .attenuation = self.color };
-    }
-};
-
-fn refract(vec: Vector(4, f32), normal: Vector(4, f32), refractionRatio: f32) Vector(4, f32) {
-    var cosTheta = zm.dot3(-vec, normal)[0];
-    if (cosTheta > 1.0) {
-        cosTheta = 1.0;
-    }
-    var a = @splat(4, refractionRatio) * (vec + (@splat(4, cosTheta) * normal));
-    var b = normal * -@splat(4, @sqrt(@fabs(1.0 - zm.lengthSq3(a)[0])));
-
-    return a + b;
-}
-
-const DielectricMat = struct {
-    color: Vector(3, f32),
-    refractionIndex: f32,
-    material: Material,
-
-    pub fn init(color: Vector(3, f32), refractionIndex: f32) DielectricMat {
-        return DielectricMat{ .color = color, .refractionIndex = refractionIndex, .material = Material{ .scatterFn = scatter } };
-    }
-
-    fn reflectance(cos: f32, refractionIndex: f32) f32 {
-        // Shlick's approximation
-        var r0 = (1.0 - refractionIndex) / (1.0 + refractionIndex);
-        r0 = r0 * r0;
-        return r0 + (1.0 - r0) * pow(f32, 1.0 - cos, 5.0);
-    }
-
-    pub fn scatter(material: *const Material, hit: *const Hit, r: Ray) ScatteredRay {
-        const self = @fieldParentPtr(DielectricMat, "material", material);
-
-        var refractionIndex = self.refractionIndex;
-        if (hit.hitFrontFace) {
-            refractionIndex = 1.0 / self.refractionIndex;
-        }
-
-        var cosTheta = zm.dot3(-r.dir, hit.normal)[0];
-        if (cosTheta > 1.0) {
-            cosTheta = 1.0;
-        }
-        var sinTheta = @sqrt(1.0 - cosTheta * cosTheta);
-
-        var newDir: Vector(4, f32) = undefined;
-        var cannotRefract = (refractionIndex * sinTheta) > 1.0;
-        if (cannotRefract or reflectance(cosTheta, refractionIndex) > rng.float(f32)) {
-            newDir = reflect(r.dir, hit.normal);
-        } else {
-            newDir = refract(r.dir, hit.normal, refractionIndex);
-        }
-
-        var scatteredRay = Ray{ .origin = hit.location, .dir = zm.normalize3(newDir) };
-        return ScatteredRay{ .ray = scatteredRay, .attenuation = self.color };
-    }
-};
-
-const Sphere = struct {
-    center: Vector(4, f32),
-    radius: f32,
-    hittable: Hittable,
-    material: *const Material,
-
-    pub fn init(mat: *const Material, center: Vector(4, f32), radius: f32) Sphere {
-        return Sphere{ .material = mat, .center = center, .radius = radius, .hittable = Hittable{ .testHitFn = testHit } };
-    }
-
-    pub fn testHit(hittable: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
-        const self = @fieldParentPtr(Sphere, "hittable", hittable);
-
-        var toOrigin = r.origin - self.center;
-        var a = zm.dot3(r.dir, r.dir)[1];
-        var b = 2.0 * zm.dot3(r.dir, toOrigin)[1];
-        var c = zm.dot3(toOrigin, toOrigin)[1] - self.radius * self.radius;
-
-        var discriminant = b * b - 4 * a * c;
-        if (discriminant < 0)
-            return null;
-
-        var x = (-b - @sqrt(discriminant)) / (2.0 * a);
-        if (x < minDist or x > maxDist) {
-            x = (-b + @sqrt(discriminant)) / (2.0 * a);
-            if (x < minDist or x > maxDist) {
-                return null;
-            }
-        }
-
-        var location = r.at(x);
-        var normal = zm.normalize3(location - self.center);
-
-        var hitFrontFace = true;
-        if (zm.dot3(r.dir, normal)[0] >= 0.0) {
-            normal = -normal;
-            hitFrontFace = false;
-        }
-
-        return Hit{ .location = location, .normal = normal, .rayFactor = x, .hitFrontFace = hitFrontFace };
-    }
-};
-
-fn randomInUnitSphere() Vector(4, f32) {
-    while (true) {
-        var vec = Vector(4, f32){ (rng.float(f32) - 0.5) * 2.0, (rng.float(f32) - 0.5) * 2.0, (rng.float(f32) - 0.5) * 2.0, 0 };
-        if (zm.lengthSq3(vec)[0] >= 1.0) continue;
-        return zm.normalize3(vec);
-    }
-}
-
-fn randomInUnitHemisphere(normal: Vector(4, f32)) Vector(4, f32) {
-    var inUnitSphere = randomInUnitSphere();
-
-    if (zm.dot3(inUnitSphere, normal)[0] <= 0.0) {
-        return -inUnitSphere;
-    }
-
-    return inUnitSphere;
-}
-
-fn traceRay(ray: Ray, spheres: []Sphere, remainingBounces: u32) Vector(3, f32) {
+fn traceRay(ray: Ray, spheres: []Sphere, remainingBounces: u32, rng: Random) Vector(3, f32) {
     if (remainingBounces <= 0) {
         return Vector(3, f32){ 0.0, 0.0, 0.0 };
     }
@@ -256,8 +79,8 @@ fn traceRay(ray: Ray, spheres: []Sphere, remainingBounces: u32) Vector(3, f32) {
     }
 
     if (nearestHit) |hit| {
-        var scatteredRay = hitMaterial.?.scatter(&hit, ray);
-        return scatteredRay.attenuation * traceRay(scatteredRay.ray, spheres, remainingBounces - 1);
+        var scatteredRay = hitMaterial.?.scatter(&hit, ray, rng);
+        return scatteredRay.attenuation * traceRay(scatteredRay.ray, spheres, remainingBounces - 1, rng);
     } else {
         return background(ray);
     }
@@ -286,7 +109,7 @@ const Camera = struct {
         return Camera{ .origin = pos, .right = right, .up = up, .focusPlaneLowerLeft = focusPlaneLowerLeft, .lensRadius = aperture / 2.0 };
     }
 
-    pub fn generateRay(self: Camera, u: f32, v: f32) Ray {
+    pub fn generateRay(self: Camera, u: f32, v: f32, rng: Random) Ray {
         const onLenseOffset = zm.normalize3(self.up) * @splat(4, self.lensRadius * rng.float(f32)) + zm.normalize3(self.right) * @splat(4, self.lensRadius * rng.float(f32));
 
         const offsetOrigin = self.origin + onLenseOffset;
@@ -335,8 +158,8 @@ const Chunk = struct {
                     var u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.size[0]);
                     var v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.size[1]);
 
-                    var ray = ctx.camera.generateRay(u, v);
-                    color += traceRay(ray, ctx.spheres, ctx.maxBounces);
+                    var ray = ctx.camera.generateRay(u, v, ctx.rng);
+                    color += traceRay(ray, ctx.spheres, ctx.maxBounces, ctx.rng);
                 }
 
                 ctx.pixels[y * ctx.size[0] + x] += color;
@@ -364,32 +187,31 @@ fn renderThreadFn(ctx: *RenderThreadCtx) void {
 }
 
 pub fn main() anyerror!void {
-    rng = DefaultRandom.init(0).random();
-
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
 
     const aspectRatio = 16.0 / 9.0;
-    //const width = 768;
-    const width = 1920;
+    const width = 768;
+    //const width = 1920;
     //const width = 2560;
     //const width = 3840;
     const size = Vector(2, u32){ width, width / aspectRatio };
     const pixelCount = size[0] * size[1];
-    const spp = 128;
+    const spp = 32;
     const maxBounces = 16;
     const gamma = 2.2;
 
-    const pi: f32 = 3.14159265359;
     const cameraPos = Vector(4, f32){ 13.0, 2.0, 3.0, 0.0 };
     const lookTarget = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
-    var camera = Camera.init(cameraPos, lookTarget, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }, pi / 8.0, aspectRatio, 0.1, 10.0);
+    var camera = Camera.init(cameraPos, lookTarget, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }, PI / 8.0, aspectRatio, 0.1, 10.0);
 
     const materialCount = 16;
     var diffuseMats: [materialCount]LambertianMat = undefined;
     var metalMats: [materialCount]MetalMat = undefined;
     var dielectricMats: [materialCount]DielectricMat = undefined;
     {
+        var rng = DefaultRandom.init(0).random();
+
         var materialIndex: u32 = 0;
         while (materialIndex < materialCount) : (materialIndex += 1) {
             diffuseMats[materialIndex] = LambertianMat.init(Vector(3, f32){ 0.1 + rng.float(f32) * 0.9, 0.1 + rng.float(f32) * 0.9, 0.1 + rng.float(f32) * 0.9 });
@@ -399,7 +221,8 @@ pub fn main() anyerror!void {
     }
 
     const sphereCount = 256 + 4;
-    var spheres: [sphereCount]Sphere = undefined;
+    var spheres: []Sphere = try allocator.alloc(Sphere, sphereCount);
+    defer allocator.free(spheres);
 
     const dielectricMat = DielectricMat.init(Vector(3, f32){ 1.0, 1.0, 1.0 }, 1.5);
     spheres[0] = Sphere.init(&dielectricMat.material, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }, 1.0);
@@ -410,13 +233,15 @@ pub fn main() anyerror!void {
     const greenDiffuseMat = LambertianMat.init(Vector(3, f32){ 0.35, 0.6, 0.2 });
     spheres[3] = Sphere.init(&greenDiffuseMat.material, Vector(4, f32){ 0.0, -2000.0, 0.0, 0.0 }, 2000);
     {
+        var rng = DefaultRandom.init(0).random();
+
         var sphereIndex: u32 = 4;
         var x: f32 = 16 + 1;
-        while (x > 0) {
+        while (x > 1) {
             x -= 1;
 
             var z: f32 = 16 + 1;
-            while (z > 0) {
+            while (z > 1) {
                 z -= 1;
 
                 var radius = 0.05 + rng.float(f32) * 0.2;
@@ -464,7 +289,7 @@ pub fn main() anyerror!void {
             .pixels = accumulatedPixels,
 
             .camera = &camera,
-            .spheres = &spheres,
+            .spheres = spheres,
 
             .size = size,
             .spp = spp,

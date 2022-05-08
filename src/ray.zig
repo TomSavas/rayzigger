@@ -9,3 +9,15 @@ pub const Ray = struct {
         return self.origin + @splat(4, t) * self.dir;
     }
 };
+
+pub const ScatteredRay = struct {
+    ray: Ray,
+    attenuation: Vector(3, f32),
+};
+
+pub const Hit = struct {
+    location: Vector(4, f32),
+    normal: Vector(4, f32),
+    rayFactor: f32,
+    hitFrontFace: bool,
+};
