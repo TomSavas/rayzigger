@@ -46,7 +46,7 @@ pub const LambertianMat = struct {
     pub fn scatter(material: *const Material, hit: *const Hit, _: Ray, rng: Random) ScatteredRay {
         const self = @fieldParentPtr(LambertianMat, "material", material);
 
-        var newDir = hit.location + hit.normal + randomInUnitHemisphere(rng, hit.normal);
+        var newDir = randomInUnitHemisphere(rng, hit.normal);
         var scatteredRay = Ray{ .origin = hit.location, .dir = zm.normalize3(newDir) };
         return ScatteredRay{ .ray = scatteredRay, .attenuation = self.color };
     }
