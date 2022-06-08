@@ -30,7 +30,8 @@ pub const Sphere = struct {
 
         var toOrigin = r.origin - self.center;
         var a = zm.dot3(r.dir, r.dir)[1];
-        var b = 2.0 * zm.dot3(r.dir, toOrigin)[1];
+        //var b = 2.0 * zm.dot3(r.dir, toOrigin)[1];
+        var b = 2.0 * zm.dot3(toOrigin, r.dir)[1];
         var c = zm.dot3(toOrigin, toOrigin)[1] - self.radius * self.radius;
 
         var discriminant = b * b - 4 * a * c;

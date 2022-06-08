@@ -1,5 +1,6 @@
 const std = @import("std");
 const zm = @import("zmath");
+const SDL = @import("sdl2");
 const pow = std.math.pow;
 const PI = std.math.pi;
 const print = std.io.getStdOut().writer().print;
@@ -20,190 +21,23 @@ const LambertianMat = @import("materials.zig").LambertianMat;
 const MetalMat = @import("materials.zig").MetalMat;
 const DielectricMat = @import("materials.zig").DielectricMat;
 
-const Pixel = struct {
-    r: u8,
-    g: u8,
-    b: u8,
-};
-
-fn outputPPMHeader(size: Vector(2, u32)) anyerror!void {
-    try print("P3\n", .{});
-    try print("{} {}\n", .{ size[0], size[1] });
-    try print("{}\n", .{255});
-}
-
-fn outputPixels(size: Vector(2, u32), pixels: []Pixel) anyerror!void {
-    var x: usize = 0;
-    var y: usize = size[1];
-    while (y > 0) {
-        y -= 1;
-        x = 0;
-        while (x < size[0]) : (x += 1) {
-            var index = y * size[0] + x;
-            try print("{} {} {}\n", pixels[index]);
-        }
-    }
-}
-
-fn background(r: Ray) Vector(3, f32) {
-    var y = zm.normalize3(r.dir)[1];
-    // -1; 1 -> 0; 1
-    y = (y + 1.0) * 0.5;
-
-    var percentage = 0.2 + y * 0.8;
-
-    const white = Vector(3, f32){ 1.0, 1.0, 1.0 };
-    const blue = Vector(3, f32){ 0.5, 0.7, 1.0 };
-
-    return zm.lerp(white, blue, percentage);
-}
-
-fn traceRay(ray: Ray, spheres: []Sphere, remainingBounces: u32, rng: Random) Vector(3, f32) {
-    if (remainingBounces <= 0) {
-        return Vector(3, f32){ 0.0, 0.0, 0.0 };
-    }
-
-    var nearestHit: ?Hit = null;
-    var hitMaterial: ?*const Material = null;
-    for (spheres) |sphere| {
-        var maxDistance: f32 = 1000000.0;
-        if (nearestHit) |hit| {
-            maxDistance = hit.rayFactor;
-        }
-
-        var maybeHit = sphere.hittable.testHit(ray, 0.001, maxDistance);
-        if (maybeHit) |hit| {
-            nearestHit = hit;
-            hitMaterial = sphere.material;
-        }
-    }
-
-    if (nearestHit) |hit| {
-        var scatteredRay = hitMaterial.?.scatter(&hit, ray, rng);
-        return scatteredRay.attenuation * traceRay(scatteredRay.ray, spheres, remainingBounces - 1, rng);
-    } else {
-        return background(ray);
-    }
-}
-
-const Camera = struct {
-    origin: Vector(4, f32),
-    right: Vector(4, f32),
-    up: Vector(4, f32),
-    focusPlaneLowerLeft: Vector(4, f32),
-    lensRadius: f32,
-
-    pub fn init(pos: Vector(4, f32), lookAt: Vector(4, f32), requestedUp: Vector(4, f32), vfov: f32, aspectRatio: f32, aperture: f32, focusDist: f32) Camera {
-        const h = @sin(vfov / 2.0) / @cos(vfov / 2.0);
-        const viewportHeight = 2.0 * h;
-        const viewportSize = Vector(2, f32){ viewportHeight * aspectRatio, viewportHeight };
-
-        var forward = zm.normalize3(lookAt - pos);
-        var right = zm.normalize3(zm.cross3(forward, requestedUp));
-        var up = zm.cross3(right, forward);
-
-        right = @splat(4, viewportSize[0] * focusDist) * right;
-        up = @splat(4, viewportHeight * focusDist) * up;
-        const focusPlaneLowerLeft = pos - right * zm.f32x4s(0.5) - up * zm.f32x4s(0.5) + @splat(4, focusDist) * forward;
-
-        return Camera{ .origin = pos, .right = right, .up = up, .focusPlaneLowerLeft = focusPlaneLowerLeft, .lensRadius = aperture / 2.0 };
-    }
-
-    pub fn generateRay(self: Camera, u: f32, v: f32, rng: Random) Ray {
-        const onLenseOffset = zm.normalize3(self.up) * @splat(4, self.lensRadius * rng.float(f32)) + zm.normalize3(self.right) * @splat(4, self.lensRadius * rng.float(f32));
-
-        const offsetOrigin = self.origin + onLenseOffset;
-        const dir = self.focusPlaneLowerLeft + @splat(4, u) * self.right + @splat(4, v) * self.up - offsetOrigin;
-        return Ray{ .origin = offsetOrigin, .dir = zm.normalize3(dir) };
-    }
-};
-
-const RenderThreadCtx = struct {
-    id: u32,
-    chunks: []Chunk,
-    rng: Random,
-    camera: *Camera,
-    spheres: []Sphere,
-    pixels: []Vector(3, f32),
-
-    size: Vector(2, u32),
-    spp: u32,
-    gamma: f32,
-    maxBounces: u32,
-};
-
-const Chunk = struct {
-    chunkTopRightPixelIndices: Vector(2, u32),
-    chunkSize: Vector(2, u32),
-
-    processingLock: Mutex,
-    processed: bool,
-
-    pub fn init(topRightPixelIndices: Vector(2, u32), chunkSize: Vector(2, u32)) Chunk {
-        return Chunk{ .chunkTopRightPixelIndices = topRightPixelIndices, .chunkSize = chunkSize, .processingLock = Mutex{}, .processed = false };
-    }
-
-    pub fn render(self: *Chunk, ctx: *const RenderThreadCtx) void {
-        var yOffset: usize = 0;
-        while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
-            const y = self.chunkTopRightPixelIndices[1] + yOffset;
-
-            var xOffset: usize = 0;
-            while (xOffset < self.chunkSize[0]) : (xOffset += 1) {
-                const x = self.chunkTopRightPixelIndices[0] + xOffset;
-
-                var color = Vector(3, f32){ 0.0, 0.0, 0.0 };
-                var sample: u32 = 0;
-                while (sample < ctx.spp) : (sample += 1) {
-                    var u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.size[0]);
-                    var v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.size[1]);
-
-                    var ray = ctx.camera.generateRay(u, v, ctx.rng);
-                    color += traceRay(ray, ctx.spheres, ctx.maxBounces, ctx.rng);
-                }
-
-                ctx.pixels[y * ctx.size[0] + x] += color;
-            }
-        }
-        self.processed = true;
-    }
-};
-
-fn renderThreadFn(ctx: *RenderThreadCtx) void {
-    var areUnprocessedChunks = true;
-    while (areUnprocessedChunks) {
-        areUnprocessedChunks = false;
-
-        for (ctx.chunks) |*chunk| {
-            if (!chunk.processed and chunk.processingLock.tryLock()) {
-                printErr("Rendering (thread_{}): {}\n", .{ ctx.id, chunk.chunkTopRightPixelIndices }) catch {};
-
-                chunk.render(ctx);
-                chunk.processingLock.unlock();
-                areUnprocessedChunks = true;
-            }
-        }
-    }
-}
+const RenderThread = @import("render_thread.zig");
+const Camera = @import("camera.zig").Camera;
+const Chunk = @import("render_thread.zig").Chunk;
+const RenderThreadCtx = @import("render_thread.zig").RenderThreadCtx;
+const Ppm = @import("ppm.zig");
+const Settings = @import("settings.zig").Settings;
 
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+    var allocator = gpa.allocator();
 
-    const aspectRatio = 16.0 / 9.0;
-    const width = 768;
-    //const width = 1920;
-    //const width = 2560;
-    //const width = 3840;
-    const size = Vector(2, u32){ width, width / aspectRatio };
-    const pixelCount = size[0] * size[1];
-    const spp = 32;
-    const maxBounces = 16;
-    const gamma = 2.2;
+    var settings = Settings.init(allocator);
+    defer settings.deinit();
 
     const cameraPos = Vector(4, f32){ 13.0, 2.0, 3.0, 0.0 };
     const lookTarget = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
-    var camera = Camera.init(cameraPos, lookTarget, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }, PI / 8.0, aspectRatio, 0.1, 10.0);
+    var camera = Camera.init(cameraPos, lookTarget, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }, PI / 2.0, settings.aspectRatio, 0.0, 10.0);
 
     const materialCount = 16;
     var diffuseMats: [materialCount]LambertianMat = undefined;
@@ -260,69 +94,100 @@ pub fn main() anyerror!void {
         }
     }
 
-    const chunkCountAlongAxis = 16;
-    const chunkCount = chunkCountAlongAxis * chunkCountAlongAxis;
-    var chunks: [chunkCount]Chunk = undefined;
-    const chunkSize = Vector(2, u32){ size[0] / chunkCountAlongAxis, size[1] / chunkCountAlongAxis };
-    var chunkIndex: u32 = 0;
-    while (chunkIndex < chunkCount) : (chunkIndex += 1) {
-        const chunkCol = @mod(chunkIndex, chunkCountAlongAxis);
-        const chunkRow = @divTrunc(chunkIndex, chunkCountAlongAxis);
-
-        const chunkStartIndices = Vector(2, u32){ chunkCol * chunkSize[0], chunkRow * chunkSize[1] };
-        chunks[chunkIndex] = Chunk.init(chunkStartIndices, chunkSize);
-    }
-
-    var accumulatedPixels: []Vector(3, f32) = try allocator.alloc(Vector(3, f32), pixelCount);
+    var accumulatedPixels: []Vector(3, f32) = try allocator.alloc(Vector(3, f32), settings.pixelCount);
     defer allocator.free(accumulatedPixels);
     std.mem.set(Vector(3, f32), accumulatedPixels, Vector(3, f32){ 0.0, 0.0, 0.0 });
 
-    const threadCount = 12;
-    var ctxs: [threadCount]RenderThreadCtx = undefined;
-    var tasks: [threadCount]Thread = undefined;
-    var threadId: u32 = 0;
-    while (threadId < threadCount) : (threadId += 1) {
-        var ctx = RenderThreadCtx{
-            .id = threadId,
-            .chunks = &chunks,
-            .rng = DefaultRandom.init(threadId).random(),
-            .pixels = accumulatedPixels,
+    const threadCount = 10;
+    var renderThreads = try RenderThread.RenderThreads.init(threadCount, allocator, &settings, &camera, accumulatedPixels, spheres);
+    defer renderThreads.deinit();
 
-            .camera = &camera,
-            .spheres = spheres,
+    try SDL.init(.{
+        .video = true,
+        .events = true,
+        .audio = true,
+    });
+    defer SDL.quit();
 
-            .size = size,
-            .spp = spp,
-            .gamma = gamma,
-            .maxBounces = maxBounces,
-        };
-        ctxs[threadId] = ctx;
+    var window = try SDL.createWindow(
+        "Rayzigger",
+        .{ .centered = {} },
+        .{ .centered = {} },
+        settings.size[0],
+        settings.size[1],
+        .{ .shown = true, .resizable = true },
+        //.{ .shown = true },
+    );
+    defer window.destroy();
 
-        tasks[threadId] = try Thread.spawn(.{}, renderThreadFn, .{&ctxs[threadId]});
-    }
+    var renderer = try SDL.createRenderer(window, null, .{ .accelerated = true });
+    defer renderer.destroy();
+    var texture = try SDL.createTexture(renderer, SDL.PixelFormatEnum.abgr8888, SDL.Texture.Access.streaming, settings.size[0], settings.size[1]);
 
-    threadId = 0;
-    while (threadId < threadCount) : (threadId += 1) {
-        tasks[threadId].join();
-    }
-
-    try printErr("Writing...\n", .{});
-    try outputPPMHeader(size);
-    var img: []Pixel = try allocator.alloc(Pixel, pixelCount);
-    defer allocator.free(img);
-
-    var y: usize = size[1];
-    while (y > 0) {
-        y -= 1;
-        var x: usize = 0;
-        while (x < size[0]) : (x += 1) {
-            var color = accumulatedPixels[y * width + x];
-            img[y * width + x] = Pixel{
-                .r = @truncate(u8, @floatToInt(u32, pow(f32, color[0] / spp, 1.0 / gamma) * 255)),
-                .g = @truncate(u8, @floatToInt(u32, pow(f32, color[1] / spp, 1.0 / gamma) * 255)),
-                .b = @truncate(u8, @floatToInt(u32, pow(f32, color[2] / spp, 1.0 / gamma) * 255)),
-            };
+    mainLoop: while (true) {
+        while (SDL.pollEvent()) |ev| {
+            switch (ev) {
+                .quit => break :mainLoop,
+                else => {
+                    if (camera.handleInputEvent(ev)) {
+                        RenderThread.invalidationSignal = true;
+                        std.time.sleep(@floatToInt(u64, 1 * 10000.0));
+                        RenderThread.invalidationSignal = false;
+                    } else if (ev == .key_down and ev.key_down.keycode == .p) {
+                        try Ppm.outputImage(settings.size, accumulatedPixels, settings.gamma);
+                    }
+                },
+            }
         }
+
+        try renderer.setColorRGB(0xA0, 0xA0, 0xA0);
+        try renderer.clear();
+
+        var pixel_data = try texture.lock(null);
+        defer pixel_data.release();
+
+        var y: usize = settings.size[1];
+        while (y > 0) {
+            y -= 1;
+            var x: usize = 0;
+            while (x < settings.size[0]) : (x += 1) {
+                var i = y * settings.width + x;
+                var color = accumulatedPixels[i];
+
+                var chunkCol = @divTrunc(@intCast(u32, x), settings.chunkSize[0]);
+                var chunkRow = @divTrunc(@intCast(u32, y), settings.chunkSize[1]);
+                var chunkIndex = chunkCol + chunkRow * settings.chunkCountAlongAxis;
+
+                var isChunkRendering = settings.chunks[chunkIndex].isProcessingReadonly;
+                var isBorderingPixel = x == chunkCol * settings.chunkSize[0] or x == (chunkCol + 1) * (settings.chunkSize[0]) - 1;
+                isBorderingPixel = isBorderingPixel or y == chunkRow * settings.chunkSize[1] or y == (chunkRow + 1) * settings.chunkSize[1] - 1;
+
+                var borderColor = Vector(3, f32){ 0.0, 0.0, 0.0 };
+                if (isChunkRendering and isBorderingPixel and settings.spp > 16) {
+                    borderColor[0] = 1 - color[0];
+                    borderColor[1] = 0 - color[1];
+                    borderColor[2] = 0 - color[2];
+                }
+
+                // Invert the y... Different coordinate systems like always
+                var pixels = pixel_data.scanline(settings.size[1] - y, u8);
+
+                pixels[x * 4 + 0] = @truncate(u8, @floatToInt(u32, pow(f32, color[0] + borderColor[0], 1.0 / settings.gamma) * 255));
+                pixels[x * 4 + 1] = @truncate(u8, @floatToInt(u32, pow(f32, color[1] + borderColor[1], 1.0 / settings.gamma) * 255));
+                pixels[x * 4 + 2] = @truncate(u8, @floatToInt(u32, pow(f32, color[2] + borderColor[2], 1.0 / settings.gamma) * 255));
+                pixels[x * 4 + 3] = 0;
+            }
+        }
+
+        try renderer.copy(texture, null, null);
+        renderer.present();
+
+        const frametime_ms: f32 = 16.666;
+        std.time.sleep(@floatToInt(u64, frametime_ms * 1000000.0));
     }
-    try outputPixels(size, img);
+}
+
+fn sdlPanic() noreturn {
+    const str = @as(?[*:0]const u8, SDL.SDL_GetError()) orelse "unknown error";
+    @panic(std.mem.sliceTo(str, 0));
 }
