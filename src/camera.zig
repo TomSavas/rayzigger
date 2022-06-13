@@ -56,7 +56,7 @@ pub const Camera = struct {
         return cam;
     }
 
-    fn recalculateRotation(self: *Camera) void {
+    pub fn recalculateRotation(self: *Camera) void {
         var rotationMat = zm.quatToMat(self.rotation);
         self.unitForward = zm.mul(rotationMat, Vector(4, f32){ 0.0, 0.0, -1.0, 0.0 });
         self.unitRight = zm.mul(rotationMat, Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 });

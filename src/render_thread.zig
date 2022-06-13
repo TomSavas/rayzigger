@@ -14,6 +14,7 @@ const OS = std.os;
 const Mutex = Thread.Mutex;
 
 const Sphere = @import("hittables.zig").Sphere;
+const Triangle = @import("hittables.zig").Triangle;
 const Ray = @import("ray.zig").Ray;
 const Hit = @import("ray.zig").Hit;
 const Material = @import("materials.zig").Material;
@@ -23,6 +24,8 @@ const DielectricMat = @import("materials.zig").DielectricMat;
 
 const Camera = @import("camera.zig").Camera;
 const Settings = @import("settings.zig").Settings;
+
+const BVH = @import("bvh.zig").BVHNode;
 
 // TODO: implement atmospheric scattering
 fn background(r: Ray) Vector(3, f32) {
@@ -35,32 +38,33 @@ fn background(r: Ray) Vector(3, f32) {
     const white = Vector(3, f32){ 1.0, 1.0, 1.0 };
     const blue = Vector(3, f32){ 0.5, 0.7, 1.0 };
 
+    //const white = Vector(3, f32){ 0.0, 0.0, 0.0 };
+    //const blue = Vector(3, f32){ 0.0001, 0.0, 0.01 };
+
     return zm.lerp(white, blue, percentage);
 }
 
-fn traceRay(ray: Ray, spheres: []Sphere, remainingBounces: u32, rng: Random) Vector(3, f32) {
+fn traceRay(ray: Ray, bvh: BVH, remainingBounces: u32, rng: Random) Vector(3, f32) {
     if (remainingBounces <= 0) {
         return Vector(3, f32){ 0.0, 0.0, 0.0 };
     }
 
     var nearestHit: ?Hit = null;
     var hitMaterial: ?*const Material = null;
-    for (spheres) |sphere| {
-        var maxDistance: f32 = 1000000.0;
-        if (nearestHit) |hit| {
-            maxDistance = hit.rayFactor;
-        }
+    var nearestHitDistance: f32 = std.math.inf(f32);
+    if (nearestHit) |hit| {
+        nearestHitDistance = hit.rayFactor;
+    }
 
-        var maybeHit = sphere.hittable.testHit(ray, 0.005, maxDistance);
-        if (maybeHit) |hit| {
-            nearestHit = hit;
-            hitMaterial = sphere.material;
-        }
+    var bvhHit = bvh.hittable.testHit(ray, 0.001, nearestHitDistance);
+    if (bvhHit != null) {
+        nearestHit = bvhHit;
+        hitMaterial = bvhHit.?.material;
     }
 
     if (nearestHit) |hit| {
         var scatteredRay = hitMaterial.?.scatter(&hit, ray, rng);
-        return scatteredRay.attenuation * traceRay(scatteredRay.ray, spheres, remainingBounces - 1, rng);
+        return scatteredRay.emissiveness + scatteredRay.attenuation * traceRay(scatteredRay.ray, bvh, remainingBounces - 1, rng);
     } else {
         return background(ray);
     }
@@ -96,12 +100,11 @@ pub const Chunk = struct {
                 var color = Vector(3, f32){ 0.0, 0.0, 0.0 };
                 var sample: u32 = 0;
                 while (sample < ctx.spp) : (sample += 1) {
-                    //printErr("Rendering {} {} {}\n", .{ x, y, sample }) catch {};
                     var u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.size[0]);
                     var v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.size[1]);
 
                     var ray = ctx.camera.generateRay(u, v, ctx.rng);
-                    color += traceRay(ray, ctx.spheres, ctx.maxBounces, ctx.rng);
+                    color += traceRay(ray, ctx.bvh, ctx.maxBounces, ctx.rng);
                 }
 
                 // Rolling average
@@ -125,7 +128,7 @@ pub const RenderThreadCtx = struct {
     chunks: []Chunk,
     rng: Random,
     camera: *Camera,
-    spheres: []Sphere,
+    bvh: BVH,
     pixels: []Vector(3, f32),
 
     size: Vector(2, u32),
@@ -158,7 +161,6 @@ pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
         }
 
         if (leastProcessedChunk) |chunk| {
-            //printErr("Rendering {}\n", .{ctx.id}) catch {};
             chunk.render(ctx);
             chunk.processingLock.unlock();
         }
@@ -179,7 +181,7 @@ pub const RenderThreads = struct {
 
     allocator: std.mem.Allocator,
 
-    pub fn init(threadCount: u32, allocator: std.mem.Allocator, settings: *Settings, camera: *Camera, accumulatedPixels: []Vector(3, f32), spheres: []Sphere) anyerror!RenderThreads {
+    pub fn init(threadCount: u32, allocator: std.mem.Allocator, settings: *Settings, camera: *Camera, accumulatedPixels: []Vector(3, f32), bvh: BVH) anyerror!RenderThreads {
         var renderThreads = RenderThreads{
             .ctxs = try allocator.alloc(RenderThreadCtx, threadCount),
             .threads = try allocator.alloc(Thread, threadCount),
@@ -198,7 +200,7 @@ pub const RenderThreads = struct {
                 .pixels = accumulatedPixels,
 
                 .camera = camera,
-                .spheres = spheres,
+                .bvh = bvh,
 
                 .size = settings.size,
                 .spp = settings.spp,

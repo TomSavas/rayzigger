@@ -6,11 +6,6 @@ const Chunk = @import("render_thread.zig").Chunk;
 pub const Settings = struct {
     aspectRatio: f32,
     width: u32,
-    //const width = 768;
-    //const width = 960;
-    //const width = 1920;
-    //const width = 2560;
-    //const width = 3840;
     size: Vector(2, u32),
     pixelCount: u32,
     spp: u32,
@@ -35,7 +30,7 @@ pub const Settings = struct {
             .size = undefined,
             .pixelCount = undefined,
             .spp = 1,
-            .maxBounces = 32,
+            .maxBounces = 8,
             .gamma = 2.2,
             .chunkAllocator = allocator,
             .chunks = undefined,

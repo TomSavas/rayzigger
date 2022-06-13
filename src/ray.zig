@@ -1,6 +1,8 @@
 const std = @import("std");
 const Vector = std.meta.Vector;
 
+const Material = @import("materials.zig").Material;
+
 pub const Ray = struct {
     origin: Vector(4, f32),
     dir: Vector(4, f32),
@@ -12,7 +14,9 @@ pub const Ray = struct {
 
 pub const ScatteredRay = struct {
     ray: Ray,
-    attenuation: Vector(3, f32),
+
+    attenuation: Vector(3, f32) = Vector(3, f32){ 0.0, 0.0, 0.0 },
+    emissiveness: Vector(3, f32) = Vector(3, f32){ 0.0, 0.0, 0.0 },
 };
 
 pub const Hit = struct {
@@ -20,4 +24,6 @@ pub const Hit = struct {
     normal: Vector(4, f32),
     rayFactor: f32,
     hitFrontFace: bool,
+
+    material: ?*const Material = null,
 };

@@ -128,3 +128,20 @@ pub const DielectricMat = struct {
         return ScatteredRay{ .ray = scatteredRay, .attenuation = self.color };
     }
 };
+
+pub const EmissiveMat = struct {
+    color: Vector(3, f32),
+    material: Material,
+
+    pub fn init(color: Vector(3, f32)) EmissiveMat {
+        return EmissiveMat{ .color = color, .material = Material{ .scatterFn = scatter } };
+    }
+
+    pub fn scatter(material: *const Material, hit: *const Hit, _: Ray, rng: Random) ScatteredRay {
+        const self = @fieldParentPtr(LambertianMat, "material", material);
+
+        var newDir = randomInUnitHemisphere(rng, hit.normal);
+        var scatteredRay = Ray{ .origin = hit.location, .dir = zm.normalize3(newDir) };
+        return ScatteredRay{ .ray = scatteredRay, .emissiveness = self.color };
+    }
+};

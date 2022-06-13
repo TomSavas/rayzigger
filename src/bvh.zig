@@ -1,0 +1,152 @@
+const std = @import("std");
+const zm = @import("zmath");
+const printErr = std.io.getStdErr().writer().print;
+
+const Random = std.rand.Random;
+const DefaultRandom = std.rand.DefaultPrng;
+const Vector = std.meta.Vector;
+
+const Ray = @import("ray.zig").Ray;
+const Hit = @import("ray.zig").Hit;
+const Hittable = @import("hittables.zig").Hittable;
+const Triangle = @import("hittables.zig").Triangle;
+const AABB = @import("hittables.zig").AABB;
+
+const Material = @import("materials.zig").Material;
+
+pub const BVHNode = struct {
+    allocator: std.mem.Allocator,
+    aabb: AABB,
+    children: ?[]BVHNode,
+    triangles: ?[]*Triangle,
+
+    hittable: Hittable,
+
+    fn init(allocator: std.mem.Allocator, aabb: AABB) BVHNode {
+        return BVHNode{
+            .allocator = allocator,
+            .aabb = aabb,
+            .children = null,
+            .triangles = null,
+            .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabbFn },
+        };
+    }
+
+    pub fn deinit(self: *BVHNode) void {
+        if (self.triangles != null) {
+            self.allocator.free(self.triangles.?);
+        }
+
+        if (self.children != null) {
+            self.children.?[0].deinit();
+            self.children.?[1].deinit();
+            self.allocator.free(self.children.?);
+        }
+    }
+
+    pub fn testHit(hittable: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
+        const self = @fieldParentPtr(BVHNode, "hittable", hittable);
+
+        if (!self.aabb.overlaps(r, minDist, maxDist)) {
+            return null;
+        }
+
+        if (self.children) |children| {
+            var childHit0 = children[0].hittable.testHit(r, minDist, maxDist);
+            //if (childHit != null) return childHit;
+
+            var childHit1: ?Hit = null;
+            if (childHit0) |hit0| {
+                childHit1 = children[1].hittable.testHit(r, minDist, hit0.rayFactor);
+            } else {
+                childHit1 = children[1].hittable.testHit(r, minDist, maxDist);
+            }
+
+            if (childHit0 == null and childHit1 == null)
+                return null;
+
+            if (childHit0 != null and childHit1 == null) return childHit0;
+            if (childHit0 == null and childHit1 != null) return childHit1;
+
+            if (childHit0.?.rayFactor < childHit1.?.rayFactor) {
+                return childHit0;
+            } else {
+                return childHit1;
+            }
+        }
+
+        if (self.triangles == null) {
+            unreachable;
+        }
+
+        var nearestHit: ?Hit = null;
+        for (self.triangles.?) |triangle| {
+            var maxDistance: f32 = maxDist;
+            if (nearestHit) |hit| {
+                maxDistance = @minimum(maxDistance, hit.rayFactor);
+            }
+
+            var maybeHit = triangle.hittable.testHit(r, 0.005, maxDistance);
+            if (maybeHit) |hit| {
+                nearestHit = hit;
+                nearestHit.?.material = triangle.material;
+            }
+        }
+        return nearestHit;
+    }
+
+    pub fn aabbFn(hittable: *const Hittable) AABB {
+        const self = @fieldParentPtr(BVHNode, "hittable", hittable);
+        return self.aabb;
+    }
+};
+
+fn triangleComparator(axisMask: Vector(4, f32), a: Triangle, b: Triangle) bool {
+    var minA: f32 = std.math.inf(f32);
+    var minB: f32 = std.math.inf(f32);
+
+    var i: u32 = 0;
+    while (i < 3) : (i += 1) {
+        var maskedA = a.points[i] * axisMask;
+        var maskedB = b.points[i] * axisMask;
+
+        minA = @minimum(minA, maskedA[0] + maskedA[1] + maskedA[2] + maskedA[3]);
+        minB = @minimum(minB, maskedB[0] + maskedB[1] + maskedB[2] + maskedB[3]);
+    }
+
+    return minA < minB;
+}
+
+// TODO: TLAS from model BLASes
+pub fn BuildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Triangle, remainingBVHDepth: u32) BVHNode {
+    var node = BVHNode.init(allocator, .{});
+    if (remainingBVHDepth <= 0 or triangles.len < 4) {
+        node.triangles = allocator.alloc(*Triangle, triangles.len) catch unreachable;
+        node.aabb = triangles[0].hittable.aabb();
+
+        var i: u32 = 0;
+        for (triangles) |*triangle| {
+            node.aabb = AABB.enclosingAABB(node.aabb, triangle.hittable.aabb());
+            node.triangles.?[i] = triangle;
+            i += 1;
+        }
+
+        return node;
+    }
+
+    // TODO: Idiotic, but works. Replace with SAH
+    var sortAxis = switch (rng.float(f32)) {
+        0.0...0.33 => Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 },
+        0.33...0.66 => Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 },
+        0.66...1.00 => Vector(4, f32){ 0.0, 0.0, 1.0, 0.0 },
+        else => unreachable,
+    };
+    std.sort.sort(Triangle, triangles, sortAxis, triangleComparator);
+
+    node.children = allocator.alloc(BVHNode, 2) catch unreachable;
+    node.children.?[0] = BuildSimpleBVH(rng, allocator, triangles[0 .. triangles.len / 2], remainingBVHDepth - 1);
+    node.children.?[1] = BuildSimpleBVH(rng, allocator, triangles[triangles.len / 2 ..], remainingBVHDepth - 1);
+    node.aabb = AABB.enclosingAABB(node.children.?[0].aabb, node.children.?[1].aabb);
+
+    return node;
+}
