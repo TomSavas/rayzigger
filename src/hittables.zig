@@ -34,6 +34,8 @@ pub const AABB = struct {
         var tmin: f32 = minDist;
         var tmax: f32 = maxDist;
         while (i < 3) : (i += 1) {
+            if (self.max[i] - self.min[i] < 0.0001) continue;
+
             var t0 = @minimum((self.min[i] - r.origin[i]) / r.dir[i], (self.max[i] - r.origin[i]) / r.dir[i]);
             var t1 = @maximum((self.min[i] - r.origin[i]) / r.dir[i], (self.max[i] - r.origin[i]) / r.dir[i]);
 
@@ -152,7 +154,14 @@ pub const Triangle = struct {
             return null;
         }
 
-        return Hit{ .location = r.at(t), .normal = self.normal, .rayFactor = t, .hitFrontFace = true };
+        var normal = self.normal;
+        var hitFrontFace = true;
+        if (zm.dot3(normal, r.dir)[0] >= 0) {
+            normal = -normal;
+            hitFrontFace = false;
+        }
+
+        return Hit{ .location = r.at(t), .normal = normal, .rayFactor = t, .hitFrontFace = hitFrontFace };
     }
 
     pub fn aabb(hittable: *const Hittable) AABB {

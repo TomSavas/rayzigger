@@ -52,12 +52,7 @@ pub fn main() anyerror!void {
     camera.recalculateRotation();
 
     const greyDiffuseMat = LambertianMat.init(Vector(3, f32){ 0.5, 0.5, 0.5 });
-
-    var filepath = std.fs.cwd().realpathAlloc(allocator, "assets/suzanne/Suzanne.gltf") catch unreachable;
-    var terminatedFilepath: []u8 = (try allocator.realloc(filepath, filepath.len + 1));
-    terminatedFilepath[terminatedFilepath.len - 1] = 0;
-    var model = Model.init(allocator, &greyDiffuseMat.material, terminatedFilepath[0..filepath.len :0]);
-    allocator.free(terminatedFilepath);
+    var model = Model.init(allocator, &greyDiffuseMat.material, "assets/suzanne/Suzanne.gltf");
     defer model.deinit();
 
     var accumulatedPixels: []Vector(3, f32) = try allocator.alloc(Vector(3, f32), settings.pixelCount);

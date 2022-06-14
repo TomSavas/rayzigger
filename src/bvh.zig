@@ -52,26 +52,21 @@ pub const BVHNode = struct {
         }
 
         if (self.children) |children| {
-            var childHit0 = children[0].hittable.testHit(r, minDist, maxDist);
-            //if (childHit != null) return childHit;
+            var closestHit: ?Hit = null;
+            var closestHitDist = maxDist;
+            for (children) |child| {
+                var maybeHit = child.hittable.testHit(r, minDist, closestHitDist);
 
-            var childHit1: ?Hit = null;
-            if (childHit0) |hit0| {
-                childHit1 = children[1].hittable.testHit(r, minDist, hit0.rayFactor);
-            } else {
-                childHit1 = children[1].hittable.testHit(r, minDist, maxDist);
+                if (maybeHit) |hit| {
+                    if (hit.rayFactor < closestHitDist) {
+                        closestHit = hit;
+                        closestHitDist = hit.rayFactor;
+                    }
+                }
             }
 
-            if (childHit0 == null and childHit1 == null)
-                return null;
-
-            if (childHit0 != null and childHit1 == null) return childHit0;
-            if (childHit0 == null and childHit1 != null) return childHit1;
-
-            if (childHit0.?.rayFactor < childHit1.?.rayFactor) {
-                return childHit0;
-            } else {
-                return childHit1;
+            if (closestHit) |_| {
+                return closestHit;
             }
         }
 
@@ -120,7 +115,7 @@ fn triangleComparator(axisMask: Vector(4, f32), a: Triangle, b: Triangle) bool {
 // TODO: TLAS from model BLASes
 pub fn BuildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Triangle, remainingBVHDepth: u32) BVHNode {
     var node = BVHNode.init(allocator, .{});
-    if (remainingBVHDepth <= 0 or triangles.len < 4) {
+    if (remainingBVHDepth <= 0 or triangles.len <= 4) {
         node.triangles = allocator.alloc(*Triangle, triangles.len) catch unreachable;
         node.aabb = triangles[0].hittable.aabb();
 

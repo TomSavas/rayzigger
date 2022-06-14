@@ -17,7 +17,12 @@ pub const Model = struct {
     bvh: BVH.BVHNode,
 
     pub fn init(allocator: std.mem.Allocator, material: *const Material, path: [:0]const u8) Model {
-        const data = zmesh.io.parseAndLoadFile(path) catch unreachable;
+        var filepath = std.fs.cwd().realpathAlloc(allocator, path) catch unreachable;
+        var terminatedFilepath: []u8 = allocator.realloc(filepath, filepath.len + 1) catch unreachable;
+        terminatedFilepath[terminatedFilepath.len - 1] = 0;
+
+        const data = zmesh.io.parseAndLoadFile(terminatedFilepath[0..filepath.len :0]) catch unreachable;
+        allocator.free(terminatedFilepath);
         defer zmesh.io.cgltf.free(data);
 
         var model = Model{ .allocator = allocator, .triangles = ArrayList(Triangle).init(allocator), .bvh = undefined };
