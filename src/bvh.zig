@@ -71,7 +71,8 @@ pub const BVHNode = struct {
         }
 
         if (self.triangles == null) {
-            unreachable;
+            return null;
+            //unreachable;
         }
 
         var nearestHit: ?Hit = null;

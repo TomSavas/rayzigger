@@ -100,7 +100,7 @@ pub const Sphere = struct {
             hitFrontFace = false;
         }
 
-        return Hit{ .location = location, .normal = normal, .rayFactor = x, .hitFrontFace = hitFrontFace };
+        return Hit{ .location = location, .normal = normal, .rayFactor = x, .hitFrontFace = hitFrontFace, .uv = .{} };
     }
 
     pub fn aabb(hittable: *const Hittable) AABB {
@@ -113,6 +113,7 @@ pub const Sphere = struct {
 
 pub const Triangle = struct {
     points: [3]Vector(4, f32),
+    uvs: [3]Vector(2, f32),
 
     normal: Vector(4, f32),
     // As in normal * p = d plane equation
@@ -121,13 +122,15 @@ pub const Triangle = struct {
     hittable: Hittable,
     material: *const Material,
 
-    pub fn init(mat: *const Material, a: Vector(4, f32), b: Vector(4, f32), c: Vector(4, f32)) Triangle {
+    pub fn init(mat: *const Material, a: Vector(4, f32), b: Vector(4, f32), c: Vector(4, f32), uvs: [3]Vector(2, f32)) Triangle {
+        //pub fn init(mat: *const Material, a: Vector(4, f32), b: Vector(4, f32), c: Vector(4, f32)) Triangle {
         var edge0 = b - a;
         var edge1 = c - a;
         var normal = zm.normalize3(zm.cross3(edge0, edge1));
         var d = zm.dot3(normal, a)[0];
 
-        return Triangle{ .material = mat, .points = .{ a, b, c }, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
+        //return Triangle{ .material = mat, .points = .{ a, b, c }, .uvs = .{ .{}, .{}, .{} }, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
+        return Triangle{ .material = mat, .points = .{ a, b, c }, .uvs = uvs, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
     }
 
     fn barycentric(self: Triangle, p: Vector(4, f32)) Vector(4, f32) {
@@ -161,7 +164,9 @@ pub const Triangle = struct {
             hitFrontFace = false;
         }
 
-        return Hit{ .location = r.at(t), .normal = normal, .rayFactor = t, .hitFrontFace = hitFrontFace };
+        var uv = self.uvs[0] * @splat(2, bary[0]) + self.uvs[1] * @splat(2, bary[1]) + self.uvs[2] * @splat(2, bary[2]);
+
+        return Hit{ .location = r.at(t), .normal = normal, .rayFactor = t, .hitFrontFace = hitFrontFace, .uv = uv };
     }
 
     pub fn aabb(hittable: *const Hittable) AABB {

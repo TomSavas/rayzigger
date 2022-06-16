@@ -20,6 +20,10 @@ pub fn build(b: *std.build.Builder) void {
     const sdk = sdl_sdk.init(b);
 
     const exe = b.addExecutable("rayzigger", "src/main.zig");
+
+    exe.addCSourceFile("libs/stb_image/stb_image_impl.c", &[_][]const u8{"-std=c99"});
+    exe.addIncludeDir("libs/stb_image");
+
     exe.setTarget(target);
     exe.setBuildMode(mode);
 

@@ -24,6 +24,7 @@ pub const Hit = struct {
     normal: Vector(4, f32),
     rayFactor: f32,
     hitFrontFace: bool,
+    uv: Vector(2, f32),
 
     material: ?*const Material = null,
 };

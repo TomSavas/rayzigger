@@ -3,6 +3,8 @@ const pow = std.math.pow;
 const Vector = std.meta.Vector;
 const Random = std.rand.Random;
 
+const print = std.io.getStdOut().writer().print;
+
 const zm = @import("zmath");
 
 const Ray = @import("ray.zig").Ray;
@@ -49,6 +51,82 @@ pub const LambertianMat = struct {
         var newDir = randomInUnitHemisphere(rng, hit.normal);
         var scatteredRay = Ray{ .origin = hit.location, .dir = zm.normalize3(newDir) };
         return ScatteredRay{ .ray = scatteredRay, .attenuation = self.color };
+    }
+};
+
+const PngImage = @import("png.zig").PngImage;
+pub const Texture = struct {
+    img: PngImage,
+
+    pub fn init(path: []const u8) Texture {
+        //var file = std.fs.openFileAbsolute(path, .{ .mode = .read_only }) catch unreachable;
+        print("accessing texture: {s}\n", .{path}) catch unreachable;
+
+        var file = std.fs.openFileAbsolute(path, .{}) catch unreachable;
+        defer file.close();
+
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        var allocator = gpa.allocator();
+        var buf = allocator.alloc(u8, 1024 * 1024 * 64) catch unreachable;
+        defer allocator.free(buf);
+
+        var bufSize = file.reader().readAll(buf) catch unreachable;
+
+        return Texture{ .img = PngImage.create(buf[0..bufSize]) catch {
+            print("failed in stb img\n", .{}) catch unreachable;
+            unreachable;
+        } };
+    }
+
+    pub fn sample(self: *Texture, uv: Vector(2, f32)) Vector(3, f32) {
+        if (uv[0] < 0 or uv[0] >= 1 or uv[1] < 0 or uv[1] >= 1) return Vector(3, f32){ 0.0, 0.0, 0.0 };
+
+        var u = @floatToInt(u64, uv[0] * @intToFloat(f64, self.img.width));
+        var v = @floatToInt(u64, uv[1] * @intToFloat(f64, self.img.height));
+
+        const bitsPerChannel = 8;
+        const channelCount = 4;
+        const bytesPerPixel = channelCount * bitsPerChannel / 8;
+
+        var index = u * bytesPerPixel + v * self.img.width * bytesPerPixel;
+        //print("uv: {}, {}, index: {}, raw.len {}\n", .{ u, v, index, self.img.raw.len }) catch unreachable;
+
+        return .{ @intToFloat(f32, self.img.raw[index]) / 255.0, @intToFloat(f32, self.img.raw[index + 1]) / 255.0, @intToFloat(f32, self.img.raw[index + 2]) / 255.0 };
+    }
+};
+
+pub const LambertianTexMat = struct {
+    color: Vector(3, f32),
+    texture: ?*Texture = null,
+    material: Material,
+
+    //pub fn init(path: [*:0]u8) LambertianTexMat {
+    pub fn init(path: []const u8) LambertianTexMat {
+        var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+        var allocator = gpa.allocator();
+        var texture = allocator.create(Texture) catch unreachable;
+        // TODO: memleak
+        texture.* = Texture.init(path);
+
+        //return LambertianTexMat{ .color = Vector(3, f32){ 1.0, 0.0, 1.0 }, .texture = texture, .material = Material{ .scatterFn = scatter } };
+        return LambertianTexMat{ .color = Vector(3, f32){ 1.0, 0.0, 1.0 }, .texture = texture, .material = Material{ .scatterFn = scatter } };
+    }
+
+    pub fn scatter(material: *const Material, hit: *const Hit, _: Ray, rng: Random) ScatteredRay {
+        const self = @fieldParentPtr(LambertianTexMat, "material", material);
+
+        //var color = self.color;
+        //if (hit.uv) |uv| {
+        //    color = Vector(3, f32){ uv[0], uv[1], 0.0 };
+        //}
+        var color = Vector(3, f32){ hit.uv[0], hit.uv[1], 0.0 };
+        if (self.texture) |tex| {
+            color = tex.sample(hit.uv);
+        }
+
+        var newDir = randomInUnitHemisphere(rng, hit.normal);
+        var scatteredRay = Ray{ .origin = hit.location, .dir = zm.normalize3(newDir) };
+        return ScatteredRay{ .ray = scatteredRay, .attenuation = color };
     }
 };
 
