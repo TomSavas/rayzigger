@@ -18,7 +18,7 @@ pub const Settings = struct {
     chunkCountAlongAxis: u32,
     chunkSize: Vector(2, u32),
 
-    pub fn init(allocator: std.mem.Allocator) Settings {
+    pub fn init(allocator: std.mem.Allocator) !Settings {
         var settings = Settings{
             .aspectRatio = 16.0 / 9.0,
             .width = 512,
@@ -30,7 +30,7 @@ pub const Settings = struct {
             .size = undefined,
             .pixelCount = undefined,
             .spp = 1,
-            .maxBounces = 8,
+            .maxBounces = 32,
             .gamma = 2.2,
             .chunkAllocator = allocator,
             .chunks = undefined,
@@ -42,7 +42,7 @@ pub const Settings = struct {
 
         // TODO: rework into fixed pixel-size chunks
         const chunkCount = settings.chunkCountAlongAxis * settings.chunkCountAlongAxis;
-        settings.chunks = settings.chunkAllocator.alloc(Chunk, chunkCount) catch unreachable;
+        settings.chunks = try settings.chunkAllocator.alloc(Chunk, chunkCount);
         settings.chunkSize = Vector(2, u32){ (settings.size[0] + settings.chunkCountAlongAxis - 1) / settings.chunkCountAlongAxis, (settings.size[1] + settings.chunkCountAlongAxis - 1) / settings.chunkCountAlongAxis };
 
         var chunkIndex: u32 = 0;

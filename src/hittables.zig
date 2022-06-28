@@ -116,21 +116,19 @@ pub const Triangle = struct {
     uvs: [3]Vector(2, f32),
 
     normal: Vector(4, f32),
-    // As in normal * p = d plane equation
+    // As in "normal * p = d" plane equation
     d: f32,
 
     hittable: Hittable,
     material: *const Material,
 
-    pub fn init(mat: *const Material, a: Vector(4, f32), b: Vector(4, f32), c: Vector(4, f32), uvs: [3]Vector(2, f32)) Triangle {
-        //pub fn init(mat: *const Material, a: Vector(4, f32), b: Vector(4, f32), c: Vector(4, f32)) Triangle {
-        var edge0 = b - a;
-        var edge1 = c - a;
+    pub fn init(mat: *const Material, points: [3]Vector(4, f32), uvs: [3]Vector(2, f32)) Triangle {
+        var edge0 = points[1] - points[0];
+        var edge1 = points[2] - points[0];
         var normal = zm.normalize3(zm.cross3(edge0, edge1));
-        var d = zm.dot3(normal, a)[0];
+        var d = zm.dot3(normal, points[0])[0];
 
-        //return Triangle{ .material = mat, .points = .{ a, b, c }, .uvs = .{ .{}, .{}, .{} }, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
-        return Triangle{ .material = mat, .points = .{ a, b, c }, .uvs = uvs, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
+        return Triangle{ .material = mat, .points = points, .uvs = uvs, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
     }
 
     fn barycentric(self: Triangle, p: Vector(4, f32)) Vector(4, f32) {

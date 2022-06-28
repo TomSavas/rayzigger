@@ -114,10 +114,10 @@ fn triangleComparator(axisMask: Vector(4, f32), a: Triangle, b: Triangle) bool {
 }
 
 // TODO: TLAS from model BLASes
-pub fn BuildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Triangle, remainingBVHDepth: u32) BVHNode {
+pub fn BuildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Triangle, remainingBVHDepth: u32) anyerror!BVHNode {
     var node = BVHNode.init(allocator, .{});
     if (remainingBVHDepth <= 0 or triangles.len <= 4) {
-        node.triangles = allocator.alloc(*Triangle, triangles.len) catch unreachable;
+        node.triangles = try allocator.alloc(*Triangle, triangles.len);
         node.aabb = triangles[0].hittable.aabb();
 
         var i: u32 = 0;
@@ -139,9 +139,9 @@ pub fn BuildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Tr
     };
     std.sort.sort(Triangle, triangles, sortAxis, triangleComparator);
 
-    node.children = allocator.alloc(BVHNode, 2) catch unreachable;
-    node.children.?[0] = BuildSimpleBVH(rng, allocator, triangles[0 .. triangles.len / 2], remainingBVHDepth - 1);
-    node.children.?[1] = BuildSimpleBVH(rng, allocator, triangles[triangles.len / 2 ..], remainingBVHDepth - 1);
+    node.children = try allocator.alloc(BVHNode, 2);
+    node.children.?[0] = try BuildSimpleBVH(rng, allocator, triangles[0 .. triangles.len / 2], remainingBVHDepth - 1);
+    node.children.?[1] = try BuildSimpleBVH(rng, allocator, triangles[triangles.len / 2 ..], remainingBVHDepth - 1);
     node.aabb = AABB.enclosingAABB(node.children.?[0].aabb, node.children.?[1].aabb);
 
     return node;

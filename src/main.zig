@@ -44,29 +44,27 @@ pub fn main() anyerror!void {
     zmesh.init(allocator);
     defer zmesh.deinit();
 
-    var settings = Settings.init(allocator);
+    var settings = try Settings.init(allocator);
     defer settings.deinit();
 
-    //const cameraPos = Vector(4, f32){ 0.0, 3.0, 6.0, 0.0 };
-    const cameraPos = Vector(4, f32){ -8.60079646e-01, 1.63909387e+00, 2.86981987e+00, 0.0e+00 };
-    const lookTarget = Vector(4, f32){ 0.0, -0.25, 0.0, 0.0 };
+    const cameraPos = Vector(4, f32){ -1.87689530e+00, 1.54253983e+00, -4.15354937e-01, 0.0e+00 };
+    const lookTarget = Vector(4, f32){ 0.0, 2, 0.0, 0.0 };
     var camera = Camera.init(cameraPos, lookTarget, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }, PI / 2.0, settings.aspectRatio, 0.0, 10.0);
     camera.recalculateRotation();
 
-    //const greyDiffuseMat = LambertianMat.init(Vector(3, f32){ 0.01, 0.01, 0.1 });
-    const greyDiffuseMat = DielectricMat.init(Vector(3, f32){ 0.85, 0.5, 0.1 }, 1.5);
-    //const greyDiffuseMat = LambertianTexMat.init();
+    const defaultMat = DielectricMat.init(Vector(3, f32){ 0.85, 0.5, 0.1 }, 1.5);
 
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/glTF-Sample-Models-master/2.0/GearboxAssy/glTF/GearboxAssy.gltf");
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/glTF-Sample-Models-master/2.0/DragonAttenuation/glTF/DragonAttenuation.gltf");
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/glTF-Sample-Models-master/2.0/Sponza/glTF/Sponza.gltf");
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes.gltf");
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured.gltf");
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Atlas.gltf");
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Complex.gltf");
-    var model = Model.init(allocator, &greyDiffuseMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Complex_SeparateTex.gltf");
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/box/Box.gltf");
-    //var model = Model.init(allocator, &greyDiffuseMat.material, "assets/suzanne/Suzanne.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/GearboxAssy/glTF/GearboxAssy.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/DragonAttenuation/glTF/DragonAttenuation.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/SciFiHelmet/glTF/SciFiHelmet.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/Sponza/glTF/Sponza.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Atlas.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Complex.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Complex_SeparateTex.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/box/Box.gltf");
+    var model = try Model.init(allocator, &defaultMat.material, "assets/suzanne/Suzanne.gltf");
     defer model.deinit();
 
     var accumulatedPixels: []Vector(3, f32) = try allocator.alloc(Vector(3, f32), settings.pixelCount);
@@ -91,15 +89,12 @@ pub fn main() anyerror!void {
         settings.size[0],
         settings.size[1],
         .{ .shown = true, .resizable = true },
-        //.{ .shown = true },
     );
     defer window.destroy();
 
     var renderer = try SDL.createRenderer(window, null, .{ .accelerated = true });
     defer renderer.destroy();
     var texture = try SDL.createTexture(renderer, SDL.PixelFormatEnum.abgr8888, SDL.Texture.Access.streaming, settings.size[0], settings.size[1]);
-
-    _ = texture;
 
     mainLoop: while (true) {
         while (SDL.pollEvent()) |ev| {
