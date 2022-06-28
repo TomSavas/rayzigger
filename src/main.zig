@@ -143,7 +143,7 @@ pub fn main() anyerror!void {
                 }
 
                 // Invert the y... Different coordinate systems like always
-                var pixels = pixel_data.scanline(settings.size[1] - y, u8);
+                var pixels = pixel_data.scanline(settings.size[1] - y - 1, u8);
 
                 pixels[x * 4 + 0] = @truncate(u8, @floatToInt(u32, pow(f32, @minimum(color[0], 1.0) + borderColor[0], 1.0 / settings.gamma) * 255));
                 pixels[x * 4 + 1] = @truncate(u8, @floatToInt(u32, pow(f32, @minimum(color[1], 1.0) + borderColor[1], 1.0 / settings.gamma) * 255));
