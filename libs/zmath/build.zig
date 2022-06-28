@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const pkg = std.build.Pkg{
     .name = "zmath",
-    .path = .{ .path = thisDir() ++ "/src/zmath.zig" },
+    .source = .{ .path = thisDir() ++ "/src/zmath.zig" },
 };
 
 pub fn build(b: *std.build.Builder) void {
@@ -25,6 +25,19 @@ pub fn buildTests(
     return tests;
 }
 
+pub fn buildBenchmarks(
+    b: *std.build.Builder,
+    target: std.zig.CrossTarget,
+) *std.build.LibExeObjStep {
+    const exe = b.addExecutable("benchmark", thisDir() ++ "/src/benchmark.zig");
+    exe.setBuildMode(std.builtin.Mode.ReleaseFast);
+    exe.setTarget(target);
+    exe.addPackage(pkg);
+    return exe;
+}
+
 fn thisDir() []const u8 {
-    return std.fs.path.dirname(@src().file) orelse ".";
+    comptime {
+        return std.fs.path.dirname(@src().file) orelse ".";
+    }
 }

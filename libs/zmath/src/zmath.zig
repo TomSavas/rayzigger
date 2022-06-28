@@ -1,6 +1,6 @@
 // ==============================================================================
 //
-// zmath - version 0.3
+// zmath v0.4 (wip)
 // SIMD math library for game developers
 // https://github.com/michal-z/zig-gamedev/tree/main/libs/zmath
 //
@@ -33,6 +33,11 @@
 // var v4 = load(mem[0..], F32x4, 0);
 // var v8 = load(mem[100..], F32x8, 0);
 // var v16 = load(mem[200..], F32x16, 0);
+//
+// var camera_position = [3]f32{ 1.0, 2.0, 3.0 };
+// var cam_pos = loadArr3(camera_position);
+// ...
+// storeArr3(&camera_position, cam_pos);
 //
 // v4 = sin(v4); // SIMDx4
 // v8 = cos(v8); // .x86_64 -> 2 x SIMDx4, .x86_64+avx+fma -> SIMDx8
@@ -70,12 +75,22 @@
 // load(mem: []const f32, comptime T: type, comptime len: u32) T
 // store(mem: []f32, v: anytype, comptime len: u32) void
 //
+// loadArr2(arr: [2]f32) F32x4
+// loadArr2zw(arr: [2]f32, z: f32, w: f32) F32x4
+// loadArr3(arr: [3]f32) F32x4
+// loadArr3w(arr: [3]f32, w: f32) F32x4
+// loadArr4(arr: [4]f32) F32x4
+//
+// storeArr2(arr: *[2]f32, v: F32x4) void
+// storeArr3(arr: *[3]f32, v: F32x4) void
+// storeArr4(arr: *[4]f32, v: F32x4) void
+//
+// arr3Ptr(ptr: anytype) *const [3]f32
+// arrNPtr(ptr: anytype) [*]const f32
+//
 // splat(comptime T: type, value: f32) T
 // splatInt(comptime T: type, value: u32) T
 // usplat(comptime T: type, value: u32) T
-//
-// vec3ToArray(v: Vec) [3]f32
-// asFloats(ptr: anytype) [*]const f32
 //
 // ------------------------------------------------------------------------------
 // 2. Functions that work on all vector components (F32xN = F32x4 or F32x8 or F32x16)
@@ -143,6 +158,10 @@
 // normalize3(v: Vec) Vec
 // normalize4(v: Vec) Vec
 //
+// vecToArr2(v: Vec) [2]f32
+// vecToArr3(v: Vec) [3]f32
+// vecToArr4(v: Vec) [4]f32
+//
 // ------------------------------------------------------------------------------
 // 4. Matrix functions
 // ------------------------------------------------------------------------------
@@ -170,6 +189,8 @@
 // perspectiveFovRhGl(fovy: f32, aspect: f32, near: f32, far: f32) Mat
 // orthographicLh(w: f32, h: f32, near: f32, far: f32) Mat
 // orthographicRh(w: f32, h: f32, near: f32, far: f32) Mat
+// orthographicOffCenterLh(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) Mat
+// orthographicOffCenterRh(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) Mat
 // determinant(m: Mat) F32x4
 // inverse(m: Mat) Mat
 // inverseDet(m: Mat, det: ?*F32x4) Mat
@@ -187,9 +208,9 @@
 // storeMat43(mem: []f32, m: Mat) void
 // storeMat34(mem: []f32, m: Mat) void
 //
-// matToArray(m: Mat) [16]f32
-// mat43ToArray(m: Mat) [12]f32
-// mat34ToArray(m: Mat) [12]f32
+// matToArr(m: Mat) [16]f32
+// matToArr43(m: Mat) [12]f32
+// matToArr34(m: Mat) [12]f32
 //
 // ------------------------------------------------------------------------------
 // 5. Quaternion functions
@@ -386,8 +407,83 @@ test "zmath.store" {
     try expect(a[5] == 0.0);
 }
 
-pub inline fn vec3ToArray(v: Vec) [3]f32 {
+pub inline fn loadArr2(arr: [2]f32) F32x4 {
+    return f32x4(arr[0], arr[1], 0.0, 0.0);
+}
+pub inline fn loadArr2zw(arr: [2]f32, z: f32, w: f32) F32x4 {
+    return f32x4(arr[0], arr[1], z, w);
+}
+pub inline fn loadArr3(arr: [3]f32) F32x4 {
+    return f32x4(arr[0], arr[1], arr[2], 0.0);
+}
+pub inline fn loadArr3w(arr: [3]f32, w: f32) F32x4 {
+    return f32x4(arr[0], arr[1], arr[2], w);
+}
+pub inline fn loadArr4(arr: [4]f32) F32x4 {
+    return f32x4(arr[0], arr[1], arr[2], arr[3]);
+}
+
+pub inline fn storeArr2(arr: *[2]f32, v: F32x4) void {
+    arr.* = .{ v[0], v[1] };
+}
+pub inline fn storeArr3(arr: *[3]f32, v: F32x4) void {
+    arr.* = .{ v[0], v[1], v[2] };
+}
+pub inline fn storeArr4(arr: *[4]f32, v: F32x4) void {
+    arr.* = .{ v[0], v[1], v[2], v[3] };
+}
+
+// TODO: Add support for U32x4
+pub inline fn arr3Ptr(ptr: anytype) *const [3]f32 {
+    comptime assert(@typeInfo(@TypeOf(ptr)) == .Pointer);
+    return @ptrCast(*const [3]f32, ptr);
+}
+
+// TODO: Add support for U32xN
+pub inline fn arrNPtr(ptr: anytype) [*]const f32 {
+    comptime assert(@typeInfo(@TypeOf(ptr)) == .Pointer);
+    const T = std.meta.Child(@TypeOf(ptr));
+    comptime assert(T == Mat or T == F32x4 or T == F32x8 or T == F32x16);
+    return @ptrCast([*]const f32, ptr);
+}
+test "zmath.arrNPtr" {
+    {
+        const mat = identity();
+        const f32ptr = arrNPtr(&mat);
+        try expect(f32ptr[0] == 1.0);
+        try expect(f32ptr[5] == 1.0);
+        try expect(f32ptr[10] == 1.0);
+        try expect(f32ptr[15] == 1.0);
+    }
+    {
+        const v8 = f32x8s(1.0);
+        const f32ptr = arrNPtr(&v8);
+        try expect(f32ptr[1] == 1.0);
+        try expect(f32ptr[7] == 1.0);
+    }
+}
+
+test "zmath.loadArr" {
+    {
+        const camera_position = [3]f32{ 1.0, 2.0, 3.0 };
+        const simd_reg = loadArr3(camera_position);
+        try expect(approxEqAbs(simd_reg, f32x4(1.0, 2.0, 3.0, 0.0), 0.0));
+    }
+    {
+        const camera_position = [3]f32{ 1.0, 2.0, 3.0 };
+        const simd_reg = loadArr3w(camera_position, 1.0);
+        try expect(approxEqAbs(simd_reg, f32x4(1.0, 2.0, 3.0, 1.0), 0.0));
+    }
+}
+
+pub inline fn vecToArr2(v: Vec) [2]f32 {
+    return .{ v[0], v[1] };
+}
+pub inline fn vecToArr3(v: Vec) [3]f32 {
     return .{ v[0], v[1], v[2] };
+}
+pub inline fn vecToArr4(v: Vec) [4]f32 {
+    return .{ v[0], v[1], v[2], v[3] };
 }
 
 // ------------------------------------------------------------------------------
@@ -1785,12 +1881,9 @@ test "zmath.dot2" {
 }
 
 pub inline fn dot3(v0: Vec, v1: Vec) F32x4 {
-    var dot = v0 * v1;
-    var temp = swizzle(dot, .y, .z, .y, .z);
-    dot = F32x4{ dot[0] + temp[0], dot[1], dot[2], dot[2] }; // addss
-    temp = swizzle(temp, .y, .y, .y, .y);
-    dot = F32x4{ dot[0] + temp[0], dot[1], dot[2], dot[2] }; // addss
-    return swizzle(dot, .x, .x, .x, .x);
+    @setFloatMode(.Optimized);
+    const dot = v0 * v1;
+    return f32x4s(dot[0] + dot[1] + dot[2]);
 }
 test "zmath.dot3" {
     const v0 = F32x4{ -1.0, 2.0, 3.0, 1.0 };
@@ -2011,18 +2104,11 @@ fn mulMat(m0: Mat, m1: Mat) Mat {
     var result: Mat = undefined;
     comptime var row: u32 = 0;
     inline while (row < 4) : (row += 1) {
-        var vx = @shuffle(f32, m0[row], undefined, [4]i32{ 0, 0, 0, 0 });
-        var vy = @shuffle(f32, m0[row], undefined, [4]i32{ 1, 1, 1, 1 });
-        var vz = @shuffle(f32, m0[row], undefined, [4]i32{ 2, 2, 2, 2 });
-        var vw = @shuffle(f32, m0[row], undefined, [4]i32{ 3, 3, 3, 3 });
-        vx = vx * m1[0];
-        vy = vy * m1[1];
-        vz = vz * m1[2];
-        vw = vw * m1[3];
-        vx = vx + vz;
-        vy = vy + vw;
-        vx = vx + vy;
-        result[row] = vx;
+        const vx = swizzle(m0[row], .x, .x, .x, .x);
+        const vy = swizzle(m0[row], .y, .y, .y, .y);
+        const vz = swizzle(m0[row], .z, .z, .z, .z);
+        const vw = swizzle(m0[row], .w, .w, .w, .w);
+        result[row] = mulAdd(vx, m1[0], vz * m1[2]) + mulAdd(vy, m1[1], vw * m1[3]);
     }
     return result;
 }
@@ -2224,6 +2310,7 @@ pub fn orthographicLh(w: f32, h: f32, near: f32, far: f32) Mat {
         f32x4(0.0, 0.0, -r * near, 1.0),
     };
 }
+
 pub fn orthographicRh(w: f32, h: f32, near: f32, far: f32) Mat {
     assert(!math.approxEqAbs(f32, w, 0.0, 0.001));
     assert(!math.approxEqAbs(f32, h, 0.0, 0.001));
@@ -2235,6 +2322,32 @@ pub fn orthographicRh(w: f32, h: f32, near: f32, far: f32) Mat {
         f32x4(0.0, 2 / h, 0.0, 0.0),
         f32x4(0.0, 0.0, r, 0.0),
         f32x4(0.0, 0.0, r * near, 1.0),
+    };
+}
+
+pub fn orthographicOffCenterLh(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) Mat {
+    assert(!math.approxEqAbs(f32, far, near, 0.001));
+
+    const r = 1.0 / (far - near);
+
+    return .{
+        f32x4(2 / (right - left), 0.0, 0.0, -(right + left) / (right - left)),
+        f32x4(0.0, 2 / (top - bottom), 0.0, -(top + bottom) / (top - bottom)),
+        f32x4(0.0, 0.0, r, -r * near),
+        f32x4(0.0, 0.0, 0.0, 1.0),
+    };
+}
+
+pub fn orthographicOffCenterRh(left: f32, right: f32, top: f32, bottom: f32, near: f32, far: f32) Mat {
+    assert(!math.approxEqAbs(f32, far, near, 0.001));
+
+    const r = 1.0 / (near - far);
+
+    return .{
+        f32x4(2 / (right - left), 0.0, 0.0, -(right + left) / (right - left)),
+        f32x4(0.0, 2 / (top - bottom), 0.0, -(top + bottom) / (top - bottom)),
+        f32x4(0.0, 0.0, r, r * near),
+        f32x4(0.0, 0.0, 0.0, 1.0),
     };
 }
 
@@ -2609,45 +2722,22 @@ pub inline fn storeMat34(mem: []f32, m: Mat) void {
     store(mem[8..12], m[2], 0);
 }
 
-pub inline fn matToArray(m: Mat) [16]f32 {
+pub inline fn matToArr(m: Mat) [16]f32 {
     var array: [16]f32 = undefined;
     storeMat(array[0..], m);
     return array;
 }
 
-pub inline fn mat43ToArray(m: Mat) [12]f32 {
+pub inline fn matToArr43(m: Mat) [12]f32 {
     var array: [12]f32 = undefined;
     storeMat43(array[0..], m);
     return array;
 }
 
-pub inline fn mat34ToArray(m: Mat) [12]f32 {
+pub inline fn matToArr34(m: Mat) [12]f32 {
     var array: [12]f32 = undefined;
     storeMat34(array[0..], m);
     return array;
-}
-
-pub inline fn asFloats(ptr: anytype) [*]const f32 {
-    comptime assert(@typeInfo(@TypeOf(ptr)) == .Pointer);
-    const T = std.meta.Child(@TypeOf(ptr));
-    comptime assert(T == Mat or T == F32x4 or T == F32x8 or T == F32x16);
-    return @ptrCast([*]const f32, ptr);
-}
-test "asFloats" {
-    {
-        const mat = identity();
-        const f32ptr = asFloats(&mat);
-        try expect(f32ptr[0] == 1.0);
-        try expect(f32ptr[5] == 1.0);
-        try expect(f32ptr[10] == 1.0);
-        try expect(f32ptr[15] == 1.0);
-    }
-    {
-        const v8 = f32x8s(1.0);
-        const f32ptr = asFloats(&v8);
-        try expect(f32ptr[1] == 1.0);
-        try expect(f32ptr[7] == 1.0);
-    }
 }
 
 // ------------------------------------------------------------------------------
