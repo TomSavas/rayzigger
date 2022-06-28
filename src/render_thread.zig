@@ -38,9 +38,6 @@ fn background(r: Ray) Vector(3, f32) {
     const white = Vector(3, f32){ 1.0, 1.0, 1.0 };
     const blue = Vector(3, f32){ 0.5, 0.7, 1.0 };
 
-    //const white = Vector(3, f32){ 0.0, 0.0, 0.0 };
-    //const blue = Vector(3, f32){ 0.0001, 0.0, 0.01 };
-
     return zm.lerp(white, blue, percentage);
 }
 
@@ -90,7 +87,7 @@ pub const Chunk = struct {
         self.sampleCount += @intToFloat(f32, ctx.spp);
 
         var yOffset: usize = 0;
-        while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
+        topLoop: while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
             const y = self.chunkTopRightPixelIndices[1] + yOffset;
 
             var xOffset: usize = 0;
@@ -111,11 +108,10 @@ pub const Chunk = struct {
                 var ssp = self.sampleCount;
                 if (self.sampleCount <= 0) ssp = 1;
                 ctx.pixels[y * ctx.size[0] + x] = (ctx.pixels[y * ctx.size[0] + x] * @splat(3, previousSampleCount) + color) / @splat(3, ssp);
-            }
 
-            if (invalidationSignal) {
-                //self.sampleCount = 0;
-                break;
+                if (invalidationSignal) {
+                    break :topLoop;
+                }
             }
         }
         self.isProcessingReadonly = false;
@@ -135,10 +131,13 @@ pub const RenderThreadCtx = struct {
     spp: u32,
     gamma: f32,
     maxBounces: u32,
+
+    shouldTerminate: bool = false,
+    invalidationSignal: bool = false,
 };
 
 pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
-    while (true) {
+    while (!ctx.shouldTerminate) {
         var leastProcessedChunk: ?*Chunk = null;
 
         for (ctx.chunks) |*chunk| {
@@ -209,13 +208,21 @@ pub const RenderThreads = struct {
             };
 
             renderThreads.threads[threadId] = try Thread.spawn(.{}, renderThreadFn, .{&renderThreads.ctxs[threadId]});
-            renderThreads.threads[threadId].detach();
         }
 
         return renderThreads;
     }
 
     pub fn deinit(self: *RenderThreads) void {
+        var threadid: u32 = 0;
+        while (threadid < 1) : (threadid += 1) {
+            self.ctxs[threadid].shouldTerminate = true;
+        }
+        threadid = 0;
+        while (threadid < 1) : (threadid += 1) {
+            self.threads[threadid].join();
+        }
+
         self.allocator.free(self.ctxs);
         self.allocator.free(self.threads);
         self.allocator.free(self.rngs);
