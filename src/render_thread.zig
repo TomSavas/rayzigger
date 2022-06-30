@@ -84,7 +84,7 @@ pub const Chunk = struct {
         self.isProcessingReadonly = true;
 
         var previousSampleCount = self.sampleCount;
-        self.sampleCount += @intToFloat(f32, ctx.spp);
+        self.sampleCount += @intToFloat(f32, ctx.settings.spp);
 
         var yOffset: usize = 0;
         topLoop: while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
@@ -96,18 +96,18 @@ pub const Chunk = struct {
 
                 var color = Vector(3, f32){ 0.0, 0.0, 0.0 };
                 var sample: u32 = 0;
-                while (sample < ctx.spp) : (sample += 1) {
-                    var u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.size[0]);
-                    var v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.size[1]);
+                while (sample < ctx.settings.spp) : (sample += 1) {
+                    var u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[0]);
+                    var v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[1]);
 
                     var ray = ctx.camera.generateRay(u, v, ctx.rng);
-                    color += traceRay(ray, ctx.bvh, ctx.maxBounces, ctx.rng);
+                    color += traceRay(ray, ctx.bvh, ctx.settings.maxBounces, ctx.rng);
                 }
 
                 // Rolling average
                 var ssp = self.sampleCount;
                 if (self.sampleCount <= 0) ssp = 1;
-                ctx.pixels[y * ctx.size[0] + x] = (ctx.pixels[y * ctx.size[0] + x] * @splat(3, previousSampleCount) + color) / @splat(3, ssp);
+                ctx.pixels[y * ctx.settings.size[0] + x] = (ctx.pixels[y * ctx.settings.size[0] + x] * @splat(3, previousSampleCount) + color) / @splat(3, ssp);
 
                 if (invalidationSignal) {
                     break :topLoop;
@@ -127,27 +127,80 @@ pub const RenderThreadCtx = struct {
     bvh: BVH,
     pixels: []Vector(3, f32),
 
-    size: Vector(2, u32),
-    spp: u32,
-    gamma: f32,
-    maxBounces: u32,
+    settings: *const Settings,
 
     shouldTerminate: bool = false,
     invalidationSignal: bool = false,
+};
+
+const SpiralChunkIterator = struct {
+    chunks: []Chunk,
+    chunkCount: Vector(2, i32),
+
+    currentChunk: Vector(2, i32),
+    currentChunkOffset: Vector(2, i32) = Vector(2, i32){ 0, 0 },
+
+    step: i32 = 1,
+    edgeLengths: Vector(2, i32) = Vector(2, i32){ 0, 0 },
+    unboundedEdgeLength: i32 = 0,
+
+    pub fn init(chunks: []Chunk, chunkCount: Vector(2, u32)) SpiralChunkIterator {
+        var signedChunkCount = Vector(2, i32){ @intCast(i32, chunkCount[0]), @intCast(i32, chunkCount[1]) };
+        return .{
+            .chunks = chunks,
+            .chunkCount = signedChunkCount,
+            .currentChunk = Vector(2, i32){ @intCast(i32, @divTrunc(chunkCount[0], 2)), @intCast(i32, @divTrunc(chunkCount[1], 2)) },
+        };
+    }
+
+    pub fn next(self: *SpiralChunkIterator) ?*Chunk {
+        self.currentChunkOffset[0] += self.step;
+        if (-self.edgeLengths[0] <= self.currentChunkOffset[0] and self.currentChunkOffset[0] <= self.edgeLengths[0]) {
+            const gridIndex = self.currentChunk + self.currentChunkOffset;
+            return &self.chunks[@intCast(u32, gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
+        }
+        self.currentChunkOffset[0] -= self.step;
+
+        self.currentChunkOffset[1] += self.step;
+        if (-self.edgeLengths[1] <= self.currentChunkOffset[1] and self.currentChunkOffset[1] <= self.edgeLengths[1]) {
+            const gridIndex = self.currentChunk + self.currentChunkOffset;
+            return &self.chunks[@intCast(u32, gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
+        }
+        self.currentChunkOffset[1] -= self.step;
+
+        self.currentChunk += self.currentChunkOffset;
+        self.currentChunkOffset = Vector(2, i32){ 0, 0 };
+        self.step *= -1;
+        self.unboundedEdgeLength += 1;
+
+        var newEdgeLenghts = Vector(2, i32){
+            @minimum(@maximum(self.unboundedEdgeLength, 0), self.chunkCount[0] - 1),
+            @minimum(@maximum(self.unboundedEdgeLength, 0), self.chunkCount[1] - 1),
+        };
+        if (newEdgeLenghts[0] == self.edgeLengths[0] and newEdgeLenghts[1] == self.edgeLengths[1]) return null;
+        self.edgeLengths = newEdgeLenghts;
+
+        const gridIndex = self.currentChunk + self.currentChunkOffset;
+        return &self.chunks[@intCast(u32, gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
+    }
 };
 
 pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
     while (!ctx.shouldTerminate) {
         var leastProcessedChunk: ?*Chunk = null;
 
-        for (ctx.chunks) |*chunk| {
+        // Order chunks in a counter-clockwise spiral starting at the center. Central chunks contain
+        // the objects of focus, so we want lower latency on them.
+        // TODO: sort once, drop the iterator
+        var chunks = SpiralChunkIterator.init(ctx.chunks, ctx.settings.chunkCountAlongAxis);
+        while (chunks.next()) |chunk| {
             if (chunk.processingLock.tryLock()) {
-                var leastSamples: f32 = chunk.sampleCount;
+                var leastSamples: f32 = std.math.inf(f32);
                 if (leastProcessedChunk) |oldChunk| {
                     leastSamples = oldChunk.sampleCount;
                 }
 
-                if (chunk.sampleCount <= leastSamples) {
+                if (chunk.sampleCount < leastSamples) {
                     if (leastProcessedChunk) |oldChunk| {
                         oldChunk.processingLock.unlock();
                     }
@@ -201,10 +254,12 @@ pub const RenderThreads = struct {
                 .camera = camera,
                 .bvh = bvh,
 
-                .size = settings.size,
-                .spp = settings.spp,
-                .gamma = settings.gamma,
-                .maxBounces = settings.maxBounces,
+                .settings = settings,
+
+                //.size = settings.size,
+                //.spp = settings.spp,
+                //.gamma = settings.gamma,
+                //.maxBounces = settings.maxBounces,
             };
 
             renderThreads.threads[threadId] = try Thread.spawn(.{}, renderThreadFn, .{&renderThreads.ctxs[threadId]});

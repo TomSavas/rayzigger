@@ -1,5 +1,6 @@
 const std = @import("std");
 const Vector = std.meta.Vector;
+const print = std.io.getStdOut().writer().print;
 
 const Chunk = @import("render_thread.zig").Chunk;
 
@@ -15,7 +16,7 @@ pub const Settings = struct {
     chunkAllocator: std.mem.Allocator,
     chunks: []Chunk,
 
-    chunkCountAlongAxis: u32,
+    chunkCountAlongAxis: Vector(2, u32),
     chunkSize: Vector(2, u32),
 
     pub fn init(allocator: std.mem.Allocator) !Settings {
@@ -29,26 +30,25 @@ pub const Settings = struct {
             //.width = 3840,
             .size = undefined,
             .pixelCount = undefined,
-            .spp = 1,
+            .spp = 256,
             .maxBounces = 32,
             .gamma = 2.2,
             .chunkAllocator = allocator,
             .chunks = undefined,
-            .chunkCountAlongAxis = 16,
-            .chunkSize = undefined,
+            .chunkCountAlongAxis = undefined,
+            .chunkSize = Vector(2, u32){ 32, 32 },
         };
         settings.size = Vector(2, u32){ settings.width, @floatToInt(u32, @intToFloat(f32, settings.width) / settings.aspectRatio) };
         settings.pixelCount = settings.size[0] * settings.size[1];
 
-        // TODO: rework into fixed pixel-size chunks
-        const chunkCount = settings.chunkCountAlongAxis * settings.chunkCountAlongAxis;
+        settings.chunkCountAlongAxis = (settings.size + settings.chunkSize - Vector(2, u32){ 1, 1 }) / settings.chunkSize;
+        const chunkCount = settings.chunkCountAlongAxis[0] * settings.chunkCountAlongAxis[1];
         settings.chunks = try settings.chunkAllocator.alloc(Chunk, chunkCount);
-        settings.chunkSize = Vector(2, u32){ (settings.size[0] + settings.chunkCountAlongAxis - 1) / settings.chunkCountAlongAxis, (settings.size[1] + settings.chunkCountAlongAxis - 1) / settings.chunkCountAlongAxis };
 
         var chunkIndex: u32 = 0;
         while (chunkIndex < chunkCount) : (chunkIndex += 1) {
-            const chunkCol = @mod(chunkIndex, settings.chunkCountAlongAxis);
-            const chunkRow = @divTrunc(chunkIndex, settings.chunkCountAlongAxis);
+            const chunkCol = @mod(chunkIndex, settings.chunkCountAlongAxis[0]);
+            const chunkRow = @divTrunc(chunkIndex, settings.chunkCountAlongAxis[0]);
 
             const chunkStartIndices = Vector(2, u32){ chunkCol * settings.chunkSize[0], chunkRow * settings.chunkSize[1] };
             var clampedChunkSize = settings.chunkSize;

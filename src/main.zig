@@ -88,7 +88,7 @@ pub fn main() anyerror!void {
         .{ .centered = {} },
         settings.size[0],
         settings.size[1],
-        .{ .shown = true, .resizable = true },
+        .{},
     );
     defer window.destroy();
 
@@ -129,7 +129,7 @@ pub fn main() anyerror!void {
 
                 var chunkCol = @divTrunc(@intCast(u32, x), settings.chunkSize[0]);
                 var chunkRow = @divTrunc(@intCast(u32, y), settings.chunkSize[1]);
-                var chunkIndex = chunkCol + chunkRow * settings.chunkCountAlongAxis;
+                var chunkIndex = chunkCol + chunkRow * settings.chunkCountAlongAxis[0];
 
                 var isChunkRendering = settings.chunks[chunkIndex].isProcessingReadonly;
                 var isBorderingPixel = x == chunkCol * settings.chunkSize[0] or x == (chunkCol + 1) * (settings.chunkSize[0]) - 1;
