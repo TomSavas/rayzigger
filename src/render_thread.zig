@@ -137,7 +137,7 @@ const SpiralChunkIterator = struct {
     chunks: []Chunk,
     chunkCount: Vector(2, i32),
 
-    currentChunk: Vector(2, i32),
+    currentChunkIndex: Vector(2, i32),
     currentChunkOffset: Vector(2, i32) = Vector(2, i32){ 0, 0 },
 
     step: i32 = 1,
@@ -149,39 +149,44 @@ const SpiralChunkIterator = struct {
         return .{
             .chunks = chunks,
             .chunkCount = signedChunkCount,
-            .currentChunk = Vector(2, i32){ @intCast(i32, @divTrunc(chunkCount[0], 2)), @intCast(i32, @divTrunc(chunkCount[1], 2)) },
+            .currentChunkIndex = Vector(2, i32){ @intCast(i32, @divTrunc(chunkCount[0], 2)), @intCast(i32, @divTrunc(chunkCount[1], 2)) },
         };
+    }
+
+    pub fn currentChunk(self: *SpiralChunkIterator) *Chunk {
+        const gridIndex = self.currentChunkIndex + self.currentChunkOffset;
+        return &self.chunks[@intCast(u32, gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
     }
 
     pub fn next(self: *SpiralChunkIterator) ?*Chunk {
         self.currentChunkOffset[0] += self.step;
         if (-self.edgeLengths[0] <= self.currentChunkOffset[0] and self.currentChunkOffset[0] <= self.edgeLengths[0]) {
-            const gridIndex = self.currentChunk + self.currentChunkOffset;
-            return &self.chunks[@intCast(u32, gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
+            return self.currentChunk();
         }
         self.currentChunkOffset[0] -= self.step;
 
         self.currentChunkOffset[1] += self.step;
         if (-self.edgeLengths[1] <= self.currentChunkOffset[1] and self.currentChunkOffset[1] <= self.edgeLengths[1]) {
-            const gridIndex = self.currentChunk + self.currentChunkOffset;
-            return &self.chunks[@intCast(u32, gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
+            return self.currentChunk();
         }
         self.currentChunkOffset[1] -= self.step;
 
-        self.currentChunk += self.currentChunkOffset;
+        self.currentChunkIndex += self.currentChunkOffset;
         self.currentChunkOffset = Vector(2, i32){ 0, 0 };
         self.step *= -1;
         self.unboundedEdgeLength += 1;
+
+        if (self.unboundedEdgeLength > @maximum(self.chunkCount[0], self.chunkCount[1])) {
+            return null;
+        }
 
         var newEdgeLenghts = Vector(2, i32){
             @minimum(@maximum(self.unboundedEdgeLength, 0), self.chunkCount[0] - 1),
             @minimum(@maximum(self.unboundedEdgeLength, 0), self.chunkCount[1] - 1),
         };
-        if (newEdgeLenghts[0] == self.edgeLengths[0] and newEdgeLenghts[1] == self.edgeLengths[1]) return null;
         self.edgeLengths = newEdgeLenghts;
 
-        const gridIndex = self.currentChunk + self.currentChunkOffset;
-        return &self.chunks[@intCast(u32, gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
+        return self.currentChunk();
     }
 };
 
