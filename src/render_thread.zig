@@ -27,6 +27,36 @@ const Settings = @import("settings.zig").Settings;
 
 const BVH = @import("bvh.zig").BVHNode;
 
+//fn henyeyGreensteinPhase(theta: f32, g: f32) f32 {
+//    var gSqr = g * g;
+//    var cosTheta = @cos(theta);
+//    var cosSqrTheta = @cos(cosTheta);
+//
+//    var phase = (3.0 * (1.0 - gSqr)) / (2.0 * (2.0 + gSqr));
+//    phase *= (1 + cosSqrTheta) / std.math.pow(f32, 1.0 + gSqr - 2 * g * cosTheta, 3.0 / 2.0);
+//}
+//
+//fn rayleighPhase(cosSqrTheta: f32) f32 {
+//    return 3.0 / (16.0 * std.math.pi) * (1.0 + cosSqrTheta);
+//}
+//
+//fn miePhase(cosTheta: f32, cosSqrTheta: f32, g: f32, gSqr: f32) f32 {
+//
+//}
+//
+//fn atmosphere(r: Ray, sunPos: Vector(4, f32), samples: usize, rayleighColor: Vector(3, f32), mieColor: Vector(3, f32)) Vector(3, f32) {
+//    var samplePoint = 1;
+//    while (samples > 0) : (samples -= 1) {
+//
+//    }
+//
+//    var sunDir = sunPos - r.origin;
+//    var cosTheta = zm.dot3(r.dir, sunDir)[0];
+//    var cosSqrTheta = cosTheta * cosTheta;
+//
+//    var color = rayleighPhase(cosSqrTheta) * rayleighColor + miePhase(cosTheta, cosSqrTheta, g, gSqr) * mieColor;
+//}
+
 // TODO: implement atmospheric scattering
 fn background(r: Ray) Vector(3, f32) {
     var y = zm.normalize3(r.dir)[1];
