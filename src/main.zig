@@ -37,6 +37,20 @@ const BVH = @import("bvh.zig");
 
 const Model = @import("model.zig").Model;
 
+fn luminance(color: Vector(3, f32)) f32 {
+    return color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
+}
+
+fn tonemapReinhardLuminance(color: Vector(3, f32), maxLuminance: f32) Vector(3, f32) {
+    var l = luminance(color);
+
+    var tonemappedReinhardLuminance = l * (1 + (l / (maxLuminance * maxLuminance)));
+    tonemappedReinhardLuminance /= 1.0 + l;
+
+    // Remapping luminance
+    return color * @splat(3, tonemappedReinhardLuminance / l);
+}
+
 pub fn main() anyerror!void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     var allocator = gpa.allocator();
@@ -53,6 +67,7 @@ pub fn main() anyerror!void {
     camera.recalculateRotation();
 
     const defaultMat = DielectricMat.init(Vector(3, f32){ 0.85, 0.5, 0.1 }, 1.5);
+    //const defaultMat = LambertianMat.init(.{ 0.3, 0.3, 0.5 });
 
     //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/GearboxAssy/glTF/GearboxAssy.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/DragonAttenuation/glTF/DragonAttenuation.gltf");
@@ -119,6 +134,7 @@ pub fn main() anyerror!void {
         var pixel_data = try texture.lock(null);
         defer pixel_data.release();
 
+        var maxLuminance = std.math.inf(f32);
         var y: usize = settings.size[1];
         while (y > 0) {
             y -= 1;
@@ -126,7 +142,16 @@ pub fn main() anyerror!void {
             while (x < settings.size[0]) : (x += 1) {
                 var i = y * settings.width + x;
                 var color = accumulatedPixels[i];
+                maxLuminance = @maximum(luminance(color), maxLuminance);
+            }
+        }
 
+        y = settings.size[1];
+        while (y > 0) {
+            y -= 1;
+            var x: usize = 0;
+            while (x < settings.size[0]) : (x += 1) {
+                var i = y * settings.width + x;
                 var chunkCol = @divTrunc(@intCast(u32, x), settings.chunkSize[0]);
                 var chunkRow = @divTrunc(@intCast(u32, y), settings.chunkSize[1]);
                 var chunkIndex = chunkCol + chunkRow * settings.chunkCountAlongAxis[0];
@@ -135,19 +160,23 @@ pub fn main() anyerror!void {
                 var isBorderingPixel = x == chunkCol * settings.chunkSize[0] or x == (chunkCol + 1) * (settings.chunkSize[0]) - 1;
                 isBorderingPixel = isBorderingPixel or y == chunkRow * settings.chunkSize[1] or y == (chunkRow + 1) * settings.chunkSize[1] - 1;
 
-                var borderColor = Vector(3, f32){ 0.0, 0.0, 0.0 };
-                if (isChunkRendering and isBorderingPixel and settings.spp >= 16) {
-                    borderColor[0] = 1 - color[0];
-                    borderColor[1] = 0 - color[1];
-                    borderColor[2] = 0 - color[2];
+                var borderColor = Vector(3, f32){ 1.0, 0.0, 0.0 };
+                var color = borderColor;
+                if (!isChunkRendering or !isBorderingPixel or settings.spp < 16) {
+                    var tonemappedColor = tonemapReinhardLuminance(accumulatedPixels[i], maxLuminance);
+                    tonemappedColor = @minimum(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });
+
+                    var gammaExponent = 1.0 / settings.gamma;
+                    color[0] = pow(f32, tonemappedColor[0], gammaExponent);
+                    color[1] = pow(f32, tonemappedColor[1], gammaExponent);
+                    color[2] = pow(f32, tonemappedColor[2], gammaExponent);
                 }
 
                 // Invert the y... Different coordinate systems like always
                 var pixels = pixel_data.scanline(settings.size[1] - y - 1, u8);
-
-                pixels[x * 4 + 0] = @truncate(u8, @floatToInt(u32, pow(f32, @minimum(color[0], 1.0) + borderColor[0], 1.0 / settings.gamma) * 255));
-                pixels[x * 4 + 1] = @truncate(u8, @floatToInt(u32, pow(f32, @minimum(color[1], 1.0) + borderColor[1], 1.0 / settings.gamma) * 255));
-                pixels[x * 4 + 2] = @truncate(u8, @floatToInt(u32, pow(f32, @minimum(color[2], 1.0) + borderColor[2], 1.0 / settings.gamma) * 255));
+                pixels[x * 4 + 0] = @truncate(u8, @floatToInt(u32, color[0] * 255));
+                pixels[x * 4 + 1] = @truncate(u8, @floatToInt(u32, color[1] * 255));
+                pixels[x * 4 + 2] = @truncate(u8, @floatToInt(u32, color[2] * 255));
                 pixels[x * 4 + 3] = 0;
             }
         }
