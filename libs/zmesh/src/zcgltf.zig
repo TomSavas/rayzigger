@@ -1,3 +1,4 @@
+const builtin = @import("builtin");
 const std = @import("std");
 const assert = std.debug.assert;
 
@@ -24,21 +25,28 @@ pub const Result = enum(c_int) {
     legacy_gltf,
 };
 
+const MallocFn = *const fn (user: ?*anyopaque, size: usize) callconv(.C) ?*anyopaque;
+const FreeFn = *const fn (user: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void;
+
 pub const MemoryOptions = extern struct {
-    alloc: ?fn (user: ?*anyopaque, size: usize) callconv(.C) ?*anyopaque = null,
-    free: ?fn (user: ?*anyopaque, ptr: ?*anyopaque) callconv(.C) void = null,
+    alloc_func: ?MallocFn = null,
+    free_func: ?FreeFn = null,
     user_data: ?*anyopaque = null,
 };
 
 pub const FileOptions = extern struct {
-    read: ?fn (
+    const ReadFn = *const fn (
         *const MemoryOptions,
         *const FileOptions,
         CString,
         *usize,
         *?*anyopaque,
-    ) callconv(.C) Result = null,
-    release: ?fn (*const MemoryOptions, *const FileOptions, ?*anyopaque) callconv(.C) void = null,
+    ) callconv(.C) Result;
+
+    const ReleaseFn = *const fn (*const MemoryOptions, *const FileOptions, ?*anyopaque) callconv(.C) void;
+
+    read: ?ReadFn = null,
+    release: ?ReleaseFn = null,
     user_data: ?*anyopaque = null,
 };
 
@@ -64,6 +72,7 @@ pub const AttributeType = enum(c_int) {
     color,
     joints,
     weights,
+    custom,
 };
 
 pub const ComponentType = enum(c_int) {
@@ -163,8 +172,10 @@ pub const MeshoptCompressionFilter = enum(c_int) {
 };
 
 pub const Extras = extern struct {
-    start_offset: usize,
-    end_offset: usize,
+    start_offset: usize, // DEPRECATED: Please use `data` instead.
+    end_offset: usize, // DEPRECATED: Please use `data` instead.
+
+    data: ?[*]u8,
 };
 
 pub const Extension = extern struct {
@@ -335,7 +346,6 @@ pub const PbrMetallicRoughness = extern struct {
     base_color_factor: [4]f32,
     metallic_factor: f32,
     roughness_factor: f32,
-    extras: Extras,
 };
 
 pub const PbrSpecularGlossiness = extern struct {

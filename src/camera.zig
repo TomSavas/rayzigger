@@ -25,9 +25,9 @@ pub const Camera = struct {
     lensRadius: f32,
     focusDist: f32,
 
-    unitForward: Vector(4, f32) = Vector(4, f32){},
-    unitRight: Vector(4, f32) = Vector(4, f32){},
-    unitUp: Vector(4, f32) = Vector(4, f32){},
+    unitForward: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
+    unitRight: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
+    unitUp: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
 
     rotation: zm.Quat,
 

@@ -1,6 +1,6 @@
 ![image](logo.jpg)
 
-# zmesh v0.2 - loading, generating, processing and optimizing triangle meshes
+# zmesh v0.9.0 - loading, generating, processing and optimizing triangle meshes
 
 As an example program please see [procedural mesh (wgpu)](https://github.com/michal-z/zig-gamedev/tree/main/samples/procedural_mesh_wgpu).
 
@@ -22,15 +22,13 @@ Then in your `build.zig` add:
 const std = @import("std");
 const zmesh = @import("libs/zmesh/build.zig");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.Build) void {
     ...
-    const zmesh_options = zmesh.BuildOptionsStep.init(b, .{});
+    const zmesh_pkg = zmesh.Package.build(b, target, optimize, .{});
 
-    const zmesh_pkg = zmesh.getPkg(&.{zmesh_options.getPkg()});
+    exe.addModule("zmesh", zmesh_pkg.zmesh);
 
-    exe.addPackage(zmesh_pkg);
-
-    zmesh.link(exe, zmesh_options);
+    zmesh_pkg.link(exe);
 }
 ```
 
@@ -43,6 +41,9 @@ pub fn main() !void {
     ...
     zmesh.init(allocator);
     defer zmesh.deinit();
+
+    var custom = zmesh.Shape.init(indices, positions, normals, texcoords);
+    defer custom.deinit();
 
     var disk = zmesh.Shape.initParametricDisk(10, 2);
     defer disk.deinit();
@@ -76,7 +77,7 @@ pub fn main() !void {
     // Load mesh
     //
     const data = try zmesh.io.parseAndLoadFile(content_dir ++ "cube.gltf");
-    defer zmesh.io.cgltf.free(data);
+    defer zmesh.io.freeData(data);
 
     var mesh_indices = std.ArrayList(u32).init(allocator);
     var mesh_positions = std.ArrayList([3]f32).init(allocator);

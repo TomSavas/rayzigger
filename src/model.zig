@@ -1,7 +1,7 @@
 const std = @import("std");
 const zm = @import("zmath");
 const zmesh = @import("zmesh");
-const print = std.io.getStdOut().writer().print;
+const print = std.debug.print;
 const Vector = std.meta.Vector;
 const DefaultRandom = std.rand.DefaultPrng;
 const ArrayList = std.ArrayList;
@@ -21,10 +21,10 @@ pub const Model = struct {
 
     pub fn init(allocator: std.mem.Allocator, defaultMaterial: *const Material, path: [:0]const u8) !Model {
         const filepathRoot = std.fs.path.dirname(path) orelse return error.InvalidPath;
-        try print("Loading model: {s}\n", .{path});
+        print("Loading model: {s}\n", .{path});
 
         const data = try zmesh.io.parseAndLoadFile(path);
-        defer zmesh.io.cgltf.free(data);
+        defer zmesh.io.freeData(data);
         var model = Model{ .allocator = allocator, .triangles = ArrayList(Triangle).init(allocator), .materials = ArrayList(*Material).init(allocator), .bvh = undefined };
 
         if (data.nodes_count <= 0) {
@@ -39,7 +39,7 @@ pub const Model = struct {
 
             for (mesh.primitives[0..mesh.primitives_count]) |primitive| {
                 var indicesAccessor = primitive.indices orelse {
-                    try print("Primitive with no index accessor, skipping...", .{});
+                    print("Primitive with no index accessor, skipping...", .{});
                     continue;
                 };
 
@@ -80,7 +80,7 @@ pub const Model = struct {
 
                         var mat = allocator.create(LambertianTexMat) catch break :matBlk;
 
-                        try print("\tLoading texture: {s}\n", .{texPath});
+                        print("\tLoading texture: {s}\n", .{texPath});
                         mat.* = try LambertianTexMat.init(terminatedTexPath);
                         material = &mat.material;
                     } else {
@@ -110,7 +110,7 @@ pub const Model = struct {
                     trianglePoints[1] = zm.mul(trianglePoints[1], transform);
                     trianglePoints[2] = zm.mul(trianglePoints[2], transform);
 
-                    var triangleUvs = [3]Vector(2, f32){ .{}, .{}, .{} };
+                    var triangleUvs = [3]Vector(2, f32){ .{ 0.0, 0.0 }, .{ 0.0, 0.0 }, .{ 0.0, 0.0 } };
                     if (maybeUvs) |uvs| {
                         triangleUvs = .{
                             Vector(2, f32){ uvs[@floatToInt(u32, indices[i + 0]) * 2 + 0], uvs[@floatToInt(u32, indices[i + 0]) * 2 + 1] },
@@ -124,8 +124,8 @@ pub const Model = struct {
             }
         }
 
-        var rng = DefaultRandom.init(0).random();
-        model.bvh = try BVH.BuildSimpleBVH(rng, allocator, model.triangles.items, 16);
+        var rng = DefaultRandom.init(0);
+        model.bvh = try BVH.BuildSimpleBVH(rng.random(), allocator, model.triangles.items, 16);
         return model;
     }
 

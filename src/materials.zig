@@ -30,7 +30,7 @@ fn randomInUnitHemisphere(rng: Random, normal: Vector(4, f32)) Vector(4, f32) {
 }
 
 pub const Material = struct {
-    scatterFn: fn (*const Material, *const Hit, Ray, Random) ScatteredRay,
+    scatterFn: *const fn (*const Material, *const Hit, Ray, Random) ScatteredRay,
 
     pub fn scatter(self: *const Material, hit: *const Hit, r: Ray, rng: Random) ScatteredRay {
         return self.scatterFn(self, hit, r, rng);

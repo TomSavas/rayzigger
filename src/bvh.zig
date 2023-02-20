@@ -79,7 +79,7 @@ pub const BVHNode = struct {
         for (self.triangles.?) |triangle| {
             var maxDistance: f32 = maxDist;
             if (nearestHit) |hit| {
-                maxDistance = @minimum(maxDistance, hit.rayFactor);
+                maxDistance = @min(maxDistance, hit.rayFactor);
             }
 
             var maybeHit = triangle.hittable.testHit(r, 0.005, maxDistance);
@@ -106,8 +106,8 @@ fn triangleComparator(axisMask: Vector(4, f32), a: Triangle, b: Triangle) bool {
         var maskedA = a.points[i] * axisMask;
         var maskedB = b.points[i] * axisMask;
 
-        minA = @minimum(minA, maskedA[0] + maskedA[1] + maskedA[2] + maskedA[3]);
-        minB = @minimum(minB, maskedB[0] + maskedB[1] + maskedB[2] + maskedB[3]);
+        minA = @min(minA, maskedA[0] + maskedA[1] + maskedA[2] + maskedA[3]);
+        minB = @min(minB, maskedB[0] + maskedB[1] + maskedB[2] + maskedB[3]);
     }
 
     return minA < minB;
@@ -131,12 +131,19 @@ pub fn BuildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Tr
     }
 
     // TODO: Idiotic, but works. Replace with SAH
-    var sortAxis = switch (rng.float(f32)) {
-        0.0...0.33 => Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 },
-        0.33...0.66 => Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 },
-        0.66...1.00 => Vector(4, f32){ 0.0, 0.0, 1.0, 0.0 },
-        else => unreachable,
-    };
+    //var sortAxis = switch (rng.float(f32)) {
+    //    0.0...0.33 => Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 },
+    //    0.33...0.66 => Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 },
+    //    0.66...1.00 => Vector(4, f32){ 0.0, 0.0, 1.0, 0.0 },
+    //    else => unreachable,
+    //};
+    var randomF = rng.float(f32);
+    var sortAxis = Vector(4, f32){ 0.0, 0.0, 1.0, 0.0 };
+    if (randomF <= 0.33) {
+        sortAxis = Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 };
+    } else if (randomF <= 0.66) {
+        sortAxis = Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 };
+    }
     std.sort.sort(Triangle, triangles, sortAxis, triangleComparator);
 
     node.children = try allocator.alloc(BVHNode, 2);

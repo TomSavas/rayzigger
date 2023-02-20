@@ -1,14 +1,16 @@
-# zmath v0.3 - SIMD math library for game developers
+# zmath v0.9.5 - SIMD math library for game developers
 
-Should work on all OSes supported by Zig. Works on x86_64 and ARM.
+Tested on x86_64 and AArch64.
 
 Provides ~140 optimized routines and ~70 extensive tests.
 
 Can be used with any graphics API.
 
-See functions list in the [code](https://github.com/michal-z/zig-gamedev/blob/main/libs/zmath/src/zmath.zig).
+Documentation can be found [here](https://github.com/michal-z/zig-gamedev/blob/main/libs/zmath/src/zmath.zig).
 
-Read [intro article](https://github.com/michal-z/zig-gamedev/wiki/Fast,-multi-platform,-SIMD-math-library-in-Zig).
+Benchamrks can be found [here](https://github.com/michal-z/zig-gamedev/blob/main/libs/zmath/src/benchmark.zig).
+
+An intro article can be found [here](https://zig.news/michalz/fast-multi-platform-simd-math-library-in-zig-2adn).
 
 ## Getting started
 
@@ -20,9 +22,11 @@ Then in your `build.zig` add:
 const std = @import("std");
 const zmath = @import("libs/zmath/build.zig");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.Build) void {
     ...
-    exe.addPackage(zmath.pkg);
+    const zmath_pkg = zmath.Package.build(b, .{});
+
+    exe.addModule("zmath", zmath_pkg.zmath);
 }
 ```
 

@@ -1,10 +1,10 @@
 const std = @import("std");
 const pow = std.math.pow;
-const print = std.io.getStdOut().writer().print;
+const print = std.debug.print;
 const Vector = std.meta.Vector;
 
 pub fn outputImage(size: Vector(2, u32), fpPixels: []Vector(3, f32), gamma: f32) anyerror!void {
-    try print("Writing to file...\n", .{});
+    print("Writing to file...\n", .{});
 
     const file = try std.fs.cwd().createFile(
         "output.ppm",
@@ -32,5 +32,5 @@ pub fn outputImage(size: Vector(2, u32), fpPixels: []Vector(3, f32), gamma: f32)
         }
     }
 
-    try print("Done writing...\n", .{});
+    print("Done writing...\n", .{});
 }

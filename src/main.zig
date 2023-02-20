@@ -4,8 +4,7 @@ const zmesh = @import("zmesh");
 const SDL = @import("sdl2");
 const pow = std.math.pow;
 const PI = std.math.pi;
-const print = std.io.getStdOut().writer().print;
-const printErr = std.io.getStdErr().writer().print;
+const print = std.debug.print;
 const Vector = std.meta.Vector;
 const Random = std.rand.Random;
 const DefaultRandom = std.rand.DefaultPrng;
@@ -121,7 +120,7 @@ pub fn main() anyerror!void {
                         std.time.sleep(@floatToInt(u64, 1 * 10000.0));
                         RenderThread.invalidationSignal = false;
                     } else if (ev == .key_down and ev.key_down.keycode == .p) {
-                        try print("pos: {}\n", .{camera.origin});
+                        print("pos: {}\n", .{camera.origin});
                         try Ppm.outputImage(settings.size, accumulatedPixels, settings.gamma);
                     }
                 },
@@ -142,7 +141,7 @@ pub fn main() anyerror!void {
             while (x < settings.size[0]) : (x += 1) {
                 var i = y * settings.width + x;
                 var color = accumulatedPixels[i];
-                maxLuminance = @maximum(luminance(color), maxLuminance);
+                maxLuminance = @max(luminance(color), maxLuminance);
             }
         }
 
@@ -164,7 +163,7 @@ pub fn main() anyerror!void {
                 var color = borderColor;
                 if (!isChunkRendering or !isBorderingPixel or settings.spp < 16) {
                     var tonemappedColor = tonemapReinhardLuminance(accumulatedPixels[i], maxLuminance);
-                    tonemappedColor = @minimum(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });
+                    tonemappedColor = @min(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });
 
                     var gammaExponent = 1.0 / settings.gamma;
                     color[0] = pow(f32, tonemappedColor[0], gammaExponent);

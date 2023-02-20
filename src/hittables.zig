@@ -14,15 +14,15 @@ pub const AABB = struct {
     pub fn enclosingAABB(a: AABB, b: AABB) AABB {
         return AABB{
             .min = .{
-                @minimum(a.min[0], b.min[0]),
-                @minimum(a.min[1], b.min[1]),
-                @minimum(a.min[2], b.min[2]),
+                @min(a.min[0], b.min[0]),
+                @min(a.min[1], b.min[1]),
+                @min(a.min[2], b.min[2]),
                 0.0,
             },
             .max = .{
-                @maximum(a.max[0], b.max[0]),
-                @maximum(a.max[1], b.max[1]),
-                @maximum(a.max[2], b.max[2]),
+                @max(a.max[0], b.max[0]),
+                @max(a.max[1], b.max[1]),
+                @max(a.max[2], b.max[2]),
                 0.0,
             },
         };
@@ -36,11 +36,11 @@ pub const AABB = struct {
         while (i < 3) : (i += 1) {
             if (self.max[i] - self.min[i] < 0.0001) continue;
 
-            var t0 = @minimum((self.min[i] - r.origin[i]) / r.dir[i], (self.max[i] - r.origin[i]) / r.dir[i]);
-            var t1 = @maximum((self.min[i] - r.origin[i]) / r.dir[i], (self.max[i] - r.origin[i]) / r.dir[i]);
+            var t0 = @min((self.min[i] - r.origin[i]) / r.dir[i], (self.max[i] - r.origin[i]) / r.dir[i]);
+            var t1 = @max((self.min[i] - r.origin[i]) / r.dir[i], (self.max[i] - r.origin[i]) / r.dir[i]);
 
-            tmin = @maximum(t0, tmin);
-            tmax = @minimum(t1, tmax);
+            tmin = @max(t0, tmin);
+            tmax = @min(t1, tmax);
 
             if (tmax <= tmin) return false;
         }
@@ -49,8 +49,8 @@ pub const AABB = struct {
 };
 
 pub const Hittable = struct {
-    testHitFn: fn (*const Hittable, Ray, f32, f32) ?Hit,
-    aabbFn: fn (*const Hittable) AABB,
+    testHitFn: *const fn (*const Hittable, Ray, f32, f32) ?Hit,
+    aabbFn: *const fn (*const Hittable) AABB,
 
     pub fn testHit(self: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
         return self.testHitFn(self, r, minDist, maxDist);
@@ -139,7 +139,7 @@ pub const Triangle = struct {
         var x = areaPBC / areaABC;
         var y = areaPCA / areaABC;
         var z = 1.0 - x - y;
-        return Vector(4, f32){ x, y, z };
+        return Vector(4, f32){ x, y, z, 0.0 };
     }
 
     pub fn testHit(hittable: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
@@ -172,15 +172,15 @@ pub const Triangle = struct {
 
         return AABB{
             .min = .{
-                @minimum(self.points[0][0], @minimum(self.points[1][0], self.points[2][0])),
-                @minimum(self.points[0][1], @minimum(self.points[1][1], self.points[2][1])),
-                @minimum(self.points[0][2], @minimum(self.points[1][2], self.points[2][2])),
+                @min(self.points[0][0], @min(self.points[1][0], self.points[2][0])),
+                @min(self.points[0][1], @min(self.points[1][1], self.points[2][1])),
+                @min(self.points[0][2], @min(self.points[1][2], self.points[2][2])),
                 0.0,
             },
             .max = .{
-                @maximum(self.points[0][0], @maximum(self.points[1][0], self.points[2][0])),
-                @maximum(self.points[0][1], @maximum(self.points[1][1], self.points[2][1])),
-                @maximum(self.points[0][2], @maximum(self.points[1][2], self.points[2][2])),
+                @max(self.points[0][0], @max(self.points[1][0], self.points[2][0])),
+                @max(self.points[0][1], @max(self.points[1][1], self.points[2][1])),
+                @max(self.points[0][2], @max(self.points[1][2], self.points[2][2])),
                 0.0,
             },
         };

@@ -206,13 +206,13 @@ const SpiralChunkIterator = struct {
         self.step *= -1;
         self.unboundedEdgeLength += 1;
 
-        if (self.unboundedEdgeLength > @maximum(self.chunkCount[0], self.chunkCount[1])) {
+        if (self.unboundedEdgeLength > @max(self.chunkCount[0], self.chunkCount[1])) {
             return null;
         }
 
         var newEdgeLenghts = Vector(2, i32){
-            @minimum(@maximum(self.unboundedEdgeLength, 0), self.chunkCount[0] - 1),
-            @minimum(@maximum(self.unboundedEdgeLength, 0), self.chunkCount[1] - 1),
+            @min(@max(self.unboundedEdgeLength, 0), self.chunkCount[0] - 1),
+            @min(@max(self.unboundedEdgeLength, 0), self.chunkCount[1] - 1),
         };
         self.edgeLengths = newEdgeLenghts;
 

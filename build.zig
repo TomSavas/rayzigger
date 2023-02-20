@@ -15,30 +15,32 @@ pub fn build(b: *std.build.Builder) void {
 
     // Standard release options allow the person running `zig build` to select
     // between Debug, ReleaseSafe, ReleaseFast, and ReleaseSmall.
-    const mode = b.standardReleaseOptions();
+    const optimize = b.standardOptimizeOption(.{});
 
-    const sdk = sdl_sdk.init(b);
+    const sdk = sdl_sdk.init(b, null);
 
-    const exe = b.addExecutable("rayzigger", "src/main.zig");
+    const exe = b.addExecutable(.{
+        .name = "rayzigger",
+        .root_source_file = .{ .path = "./src/main.zig" },
+        .target = target,
+        .optimize = optimize,
+    });
 
     exe.addCSourceFile("libs/stb_image/stb_image_impl.c", &[_][]const u8{"-std=c99"});
-    exe.addIncludeDir("libs/stb_image");
-
-    exe.setTarget(target);
-    exe.setBuildMode(mode);
+    exe.addIncludePath("libs/stb_image");
 
     sdk.link(exe, .dynamic);
 
     const exe_options = b.addOptions();
     exe.addOptions(options_pkg_name, exe_options);
 
-    const zmesh_options = zmesh.BuildOptionsStep.init(b, .{});
-    const zmesh_pkg = zmesh.getPkg(&.{zmesh_options.getPkg()});
-    exe.addPackage(zmesh_pkg);
-    zmesh.link(exe, zmesh_options);
+    const zmesh_pkg = zmesh.Package.build(b, target, optimize, .{});
+    exe.addModule("zmesh", zmesh_pkg.zmesh);
+    zmesh_pkg.link(exe);
 
-    exe.addPackage(zmath.pkg);
-    exe.addPackage(sdk.getWrapperPackage("sdl2"));
+    const zmath_pkg = zmath.Package.build(b, .{});
+    exe.addModule("zmath", zmath_pkg.zmath);
+    exe.addModule("sdl2", sdk.getWrapperModule());
 
     exe.install();
 
@@ -50,11 +52,4 @@ pub fn build(b: *std.build.Builder) void {
 
     const run_step = b.step("run", "Run the app");
     run_step.dependOn(&run_cmd.step);
-
-    const exe_tests = b.addTest("src/main.zig");
-    exe_tests.setTarget(target);
-    exe_tests.setBuildMode(mode);
-
-    const test_step = b.step("test", "Run unit tests");
-    test_step.dependOn(&exe_tests.step);
 }
