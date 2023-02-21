@@ -16,7 +16,7 @@ pub const Texture = struct {
     }
 
     pub fn fromPath(path: [:0]const u8) !Texture {
-        stbi.stbi_set_flip_vertically_on_load(1);
+        //stbi.stbi_set_flip_vertically_on_load(1);
 
         var width: c_int = undefined;
         var height: c_int = undefined;
@@ -73,7 +73,7 @@ pub const Texture = struct {
     }
 
     pub fn sample(self: Texture, uv: Vector(2, f32)) Vector(3, f32) {
-        if (uv[0] < 0 or uv[0] >= 1 or uv[1] < 0 or uv[1] >= 1) return Vector(3, f32){ 0.0, 0.0, 0.0 };
+        // The uv wrapping should be wrapped by the caller, avoid doing here -- expensive
 
         var u = @floatToInt(u32, uv[0] * @intToFloat(f64, self.width));
         var v = @floatToInt(u32, uv[1] * @intToFloat(f64, self.height));

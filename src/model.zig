@@ -80,8 +80,11 @@ pub const Model = struct {
 
                         var mat = allocator.create(LambertianTexMat) catch break :matBlk;
 
-                        print("\tLoading texture: {s}\n", .{texPath});
-                        mat.* = try LambertianTexMat.init(terminatedTexPath);
+                        print("Loading texture: {s}\n", .{texPath});
+                        mat.* = LambertianTexMat.init(terminatedTexPath) catch {
+                            print("Failed loading texture\n", .{});
+                            break :matBlk;
+                        };
                         material = &mat.material;
                     } else {
                         var mat = allocator.create(LambertianMat) catch break :matBlk;
@@ -112,10 +115,11 @@ pub const Model = struct {
 
                     var triangleUvs = [3]Vector(2, f32){ .{ 0.0, 0.0 }, .{ 0.0, 0.0 }, .{ 0.0, 0.0 } };
                     if (maybeUvs) |uvs| {
+                        // For the time being just wrap all the UVs
                         triangleUvs = .{
-                            Vector(2, f32){ uvs[@floatToInt(u32, indices[i + 0]) * 2 + 0], uvs[@floatToInt(u32, indices[i + 0]) * 2 + 1] },
-                            Vector(2, f32){ uvs[@floatToInt(u32, indices[i + 1]) * 2 + 0], uvs[@floatToInt(u32, indices[i + 1]) * 2 + 1] },
-                            Vector(2, f32){ uvs[@floatToInt(u32, indices[i + 2]) * 2 + 0], uvs[@floatToInt(u32, indices[i + 2]) * 2 + 1] },
+                            Vector(2, f32){ @mod(uvs[@floatToInt(u32, indices[i + 0]) * 2 + 0], 1.0), @mod(uvs[@floatToInt(u32, indices[i + 0]) * 2 + 1], 1.0) },
+                            Vector(2, f32){ @mod(uvs[@floatToInt(u32, indices[i + 1]) * 2 + 0], 1.0), @mod(uvs[@floatToInt(u32, indices[i + 1]) * 2 + 1], 1.0) },
+                            Vector(2, f32){ @mod(uvs[@floatToInt(u32, indices[i + 2]) * 2 + 0], 1.0), @mod(uvs[@floatToInt(u32, indices[i + 2]) * 2 + 1], 1.0) },
                         };
                     }
 

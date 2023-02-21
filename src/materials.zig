@@ -3,7 +3,7 @@ const pow = std.math.pow;
 const Vector = std.meta.Vector;
 const Random = std.rand.Random;
 
-const print = std.io.getStdOut().writer().print;
+const print = std.debug.print;
 
 const zm = @import("zmath");
 

@@ -71,14 +71,14 @@ pub fn main() anyerror!void {
     //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/GearboxAssy/glTF/GearboxAssy.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/DragonAttenuation/glTF/DragonAttenuation.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/SciFiHelmet/glTF/SciFiHelmet.gltf");
-    //var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/Sponza/glTF/Sponza.gltf");
+    var model = try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/Sponza/glTF/Sponza.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Atlas.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Complex.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/deccer-cubes-main/SM_Deccer_Cubes_Textured_Complex_SeparateTex.gltf");
     //var model = try Model.init(allocator, &defaultMat.material, "assets/box/Box.gltf");
-    var model = try Model.init(allocator, &defaultMat.material, "assets/suzanne/Suzanne.gltf");
+    //var model = try Model.init(allocator, &defaultMat.material, "assets/suzanne/Suzanne.gltf");
     defer model.deinit();
 
     var accumulatedPixels: []Vector(3, f32) = try allocator.alloc(Vector(3, f32), settings.pixelCount);
