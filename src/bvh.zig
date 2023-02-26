@@ -113,30 +113,27 @@ fn triangleComparator(axisMask: Vector(4, f32), a: Triangle, b: Triangle) bool {
     return minA < minB;
 }
 
-// TODO: TLAS from model BLASes
-pub fn BuildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Triangle, remainingBVHDepth: u32) anyerror!BVHNode {
+fn buildLeafBVH(allocator: std.mem.Allocator, triangles: []Triangle) anyerror!BVHNode {
     var node = BVHNode.init(allocator, .{});
-    if (remainingBVHDepth <= 0 or triangles.len <= 4) {
-        node.triangles = try allocator.alloc(*Triangle, triangles.len);
-        node.aabb = triangles[0].hittable.aabb();
+    node.triangles = try allocator.alloc(*Triangle, triangles.len);
+    node.aabb = triangles[0].hittable.aabb();
 
-        var i: u32 = 0;
-        for (triangles) |*triangle| {
-            node.aabb = AABB.enclosingAABB(node.aabb, triangle.hittable.aabb());
-            node.triangles.?[i] = triangle;
-            i += 1;
-        }
-
-        return node;
+    var i: u32 = 0;
+    for (triangles) |*triangle| {
+        node.aabb = AABB.enclosingAABB(node.aabb, triangle.hittable.aabb());
+        node.triangles.?[i] = triangle;
+        i += 1;
     }
 
-    // TODO: Idiotic, but works. Replace with SAH
-    //var sortAxis = switch (rng.float(f32)) {
-    //    0.0...0.33 => Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 },
-    //    0.33...0.66 => Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 },
-    //    0.66...1.00 => Vector(4, f32){ 0.0, 0.0, 1.0, 0.0 },
-    //    else => unreachable,
-    //};
+    return node;
+}
+
+// TODO: TLAS from model BLASes
+pub fn buildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Triangle, remainingBVHDepth: u32) anyerror!BVHNode {
+    if (remainingBVHDepth <= 0 or triangles.len <= 4) {
+        return buildLeafBVH(allocator, triangles);
+    }
+
     var randomF = rng.float(f32);
     var sortAxis = Vector(4, f32){ 0.0, 0.0, 1.0, 0.0 };
     if (randomF <= 0.33) {
@@ -146,10 +143,115 @@ pub fn BuildSimpleBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Tr
     }
     std.sort.sort(Triangle, triangles, sortAxis, triangleComparator);
 
+    var node = BVHNode.init(allocator, .{});
     node.children = try allocator.alloc(BVHNode, 2);
-    node.children.?[0] = try BuildSimpleBVH(rng, allocator, triangles[0 .. triangles.len / 2], remainingBVHDepth - 1);
-    node.children.?[1] = try BuildSimpleBVH(rng, allocator, triangles[triangles.len / 2 ..], remainingBVHDepth - 1);
-    node.aabb = AABB.enclosingAABB(node.children.?[0].aabb, node.children.?[1].aabb);
+    node.children.?[0] = try buildSimpleBVH(rng, allocator, triangles[0 .. triangles.len / 2], remainingBVHDepth - 1);
+    node.children.?[1] = try buildSimpleBVH(rng, allocator, triangles[triangles.len / 2 ..], remainingBVHDepth - 1);
+    node.aabb = node.children.?[0].aabb.enclosingAABB(node.children.?[1].aabb);
 
+    return node;
+}
+
+const SAHBucket = struct {
+    triangleCount: usize,
+    aabb: AABB,
+};
+
+pub fn buildSAHBVH(rng: Random, allocator: std.mem.Allocator, triangles: []Triangle, bucketCount: u32, remainingBVHDepth: u32) anyerror!BVHNode {
+    if (remainingBVHDepth <= 0) {
+        std.debug.print("Reached max depth, triangle count: {}\n", .{triangles.len});
+    }
+    if (remainingBVHDepth <= 0 or triangles.len <= 4) {
+        return buildLeafBVH(allocator, triangles);
+    }
+
+    // Centroid of triangle cluster
+    var centroidAABB = AABB.fromPoints(triangles[0].centroid(), triangles[1].centroid());
+    var i: usize = 2;
+    while (i < triangles.len) : (i += 1) {
+        centroidAABB = centroidAABB.extend(triangles[i].centroid());
+    }
+
+    // We split along the longest AABB side for now
+    const longestDimension = centroidAABB.longestDimension();
+
+    // Calculate buckets
+    var buckets: []SAHBucket = try allocator.alloc(SAHBucket, bucketCount);
+    const longestSide = centroidAABB.max[longestDimension] - centroidAABB.min[longestDimension];
+    const bucketWidth = longestSide / @intToFloat(f32, bucketCount);
+    defer allocator.free(buckets);
+    i = 0;
+    while (i < bucketCount) : (i += 1) {
+        buckets[i].triangleCount = 0;
+    }
+
+    for (triangles) |triangle| {
+        const offset = triangle.centroid()[longestDimension] - centroidAABB.min[longestDimension];
+        const bucketIndex: usize = @min(bucketCount - 1, @floatToInt(usize, offset / bucketWidth));
+        if (buckets[bucketIndex].triangleCount == 0) {
+            buckets[bucketIndex].aabb = triangle.hittable.aabb();
+        } else {
+            buckets[bucketIndex].aabb = buckets[bucketIndex].aabb.enclosingAABB(triangle.hittable.aabb());
+        }
+        buckets[bucketIndex].triangleCount += 1;
+    }
+
+    // Calculate costs of different splits and find the minimal one
+    var costAtSplit: []f32 = try allocator.alloc(f32, bucketCount);
+    defer allocator.free(costAtSplit);
+    var minSplitAfterBucket: usize = 0;
+
+    i = 0;
+    while (i < bucketCount - 1) : (i += 1) {
+        var bucketAABBs: [2]AABB = .{ buckets[0].aabb, buckets[bucketCount - 1].aabb };
+        var triangleCounts: [2]usize = .{ 0, 0 };
+
+        var j: usize = 0;
+        while (j <= i) : (j += 1) {
+            bucketAABBs[0] = bucketAABBs[0].enclosingAABB(buckets[j].aabb);
+            triangleCounts[0] += buckets[j].triangleCount;
+        }
+
+        while (j < bucketCount) : (j += 1) {
+            bucketAABBs[1] = bucketAABBs[1].enclosingAABB(buckets[j].aabb);
+            triangleCounts[1] += buckets[j].triangleCount;
+        }
+
+        costAtSplit[i] = 0.125 +
+            (@intToFloat(f32, triangleCounts[0]) * bucketAABBs[0].surfaceArea() + @intToFloat(f32, triangleCounts[1]) * bucketAABBs[1].surfaceArea()) /
+            centroidAABB.surfaceArea();
+        if (costAtSplit[i] < costAtSplit[minSplitAfterBucket]) {
+            minSplitAfterBucket = i;
+        }
+    }
+
+    // Split triangles on the bucket boundary
+    var pivotValue = centroidAABB.min[longestDimension] + @intToFloat(f32, minSplitAfterBucket + 1) * bucketWidth;
+
+    // Partition triangles around the pivot
+    i = 0;
+    var j: usize = triangles.len - 1;
+    while (i < j) {
+        while (i < triangles.len and triangles[i].centroid()[longestDimension] <= pivotValue) : (i += 1) {}
+        while (j > 0 and triangles[j].centroid()[longestDimension] > pivotValue) : (j -= 1) {}
+
+        if (i < j) {
+            var swapped = triangles[i];
+            triangles[i] = triangles[j];
+            triangles[j] = swapped;
+
+            i += 1;
+            j -= 1;
+        }
+    }
+    var leftPartitionSize = j + 1;
+
+    // Recurse down
+    var node = BVHNode.init(allocator, .{});
+    node.children = try allocator.alloc(BVHNode, 2);
+    node.children.?[0] = try buildSAHBVH(rng, allocator, triangles[0..leftPartitionSize], bucketCount, remainingBVHDepth - 1);
+    node.children.?[1] = try buildSAHBVH(rng, allocator, triangles[leftPartitionSize..], bucketCount, remainingBVHDepth - 1);
+
+    node.aabb = node.children.?[0].aabb.enclosingAABB(node.children.?[1].aabb);
     return node;
 }

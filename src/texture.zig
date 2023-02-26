@@ -73,10 +73,8 @@ pub const Texture = struct {
     }
 
     pub fn sample(self: Texture, uv: Vector(2, f32)) Vector(3, f32) {
-        // The uv wrapping should be wrapped by the caller, avoid doing here -- expensive
-
-        var u = @floatToInt(u32, uv[0] * @intToFloat(f64, self.width));
-        var v = @floatToInt(u32, uv[1] * @intToFloat(f64, self.height));
+        var u = @floatToInt(u32, @mod(uv[0], 1.0) * @intToFloat(f64, self.width));
+        var v = @floatToInt(u32, @mod(uv[1], 1.0) * @intToFloat(f64, self.height));
 
         var idx = self.index(u, v);
         return .{

@@ -11,18 +11,52 @@ pub const AABB = struct {
     min: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
     max: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
 
-    pub fn enclosingAABB(a: AABB, b: AABB) AABB {
+    pub fn fromPoints(a: Vector(4, f32), b: Vector(4, f32)) AABB {
         return AABB{
             .min = .{
-                @min(a.min[0], b.min[0]),
-                @min(a.min[1], b.min[1]),
-                @min(a.min[2], b.min[2]),
+                @min(a[0], b[0]),
+                @min(a[1], b[1]),
+                @min(a[2], b[2]),
                 0.0,
             },
             .max = .{
-                @max(a.max[0], b.max[0]),
-                @max(a.max[1], b.max[1]),
-                @max(a.max[2], b.max[2]),
+                @max(a[0], b[0]),
+                @max(a[1], b[1]),
+                @max(a[2], b[2]),
+                0.0,
+            },
+        };
+    }
+
+    pub fn enclosingAABB(self: AABB, b: AABB) AABB {
+        return AABB{
+            .min = .{
+                @min(self.min[0], b.min[0]),
+                @min(self.min[1], b.min[1]),
+                @min(self.min[2], b.min[2]),
+                0.0,
+            },
+            .max = .{
+                @max(self.max[0], b.max[0]),
+                @max(self.max[1], b.max[1]),
+                @max(self.max[2], b.max[2]),
+                0.0,
+            },
+        };
+    }
+
+    pub fn extend(self: AABB, point: Vector(4, f32)) AABB {
+        return AABB{
+            .min = .{
+                @min(self.min[0], point[0]),
+                @min(self.min[1], point[1]),
+                @min(self.min[2], point[2]),
+                0.0,
+            },
+            .max = .{
+                @max(self.max[0], point[0]),
+                @max(self.max[1], point[1]),
+                @max(self.max[2], point[2]),
                 0.0,
             },
         };
@@ -45,6 +79,29 @@ pub const AABB = struct {
             if (tmax <= tmin) return false;
         }
         return true;
+    }
+
+    pub fn longestDimension(self: AABB) usize {
+        // Doesn't include w!!!
+        var maxLength = self.max[0] - self.min[0];
+        var maxDimensionIndex: usize = 0;
+
+        var i: usize = 1;
+        while (i < 4) : (i += 1) {
+            var length = self.max[i] - self.min[i];
+            if (length > maxLength) {
+                maxDimensionIndex = i;
+                maxLength = length;
+            }
+        }
+
+        return maxDimensionIndex;
+    }
+
+    pub fn surfaceArea(self: AABB) f32 {
+        // Doesn't include w!!!
+        var sizes: [3]f32 = .{ self.max[0] - self.min[0], self.max[1] - self.min[1], self.max[2] - self.min[2] };
+        return 2.0 * (sizes[0] * sizes[1] + sizes[0] * sizes[2] + sizes[1] * sizes[2]);
     }
 };
 
@@ -140,6 +197,13 @@ pub const Triangle = struct {
         var y = areaPCA / areaABC;
         var z = 1.0 - x - y;
         return Vector(4, f32){ x, y, z, 0.0 };
+    }
+
+    pub fn centroid(self: Triangle) Vector(4, f32) {
+        const a = self.hittable.aabb();
+        const len = a.max - a.min;
+
+        return .{ a.min[0] + len[0] / 2.0, a.min[1] + len[1] / 2.0, a.min[2] + len[2] / 2.0, a.min[3] + len[3] / 2.0 };
     }
 
     pub fn testHit(hittable: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {

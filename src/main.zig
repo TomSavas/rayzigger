@@ -165,10 +165,14 @@ pub fn main() anyerror!void {
                     var tonemappedColor = tonemapReinhardLuminance(accumulatedPixels[i], maxLuminance);
                     tonemappedColor = @min(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });
 
-                    var gammaExponent = 1.0 / settings.gamma;
-                    color[0] = pow(f32, tonemappedColor[0], gammaExponent);
-                    color[1] = pow(f32, tonemappedColor[1], gammaExponent);
-                    color[2] = pow(f32, tonemappedColor[2], gammaExponent);
+                    if (settings.gamma == 2.0) {
+                        color = @sqrt(tonemappedColor);
+                    } else {
+                        var gammaExponent = 1.0 / settings.gamma;
+                        color[0] = pow(f32, tonemappedColor[0], gammaExponent);
+                        color[1] = pow(f32, tonemappedColor[1], gammaExponent);
+                        color[2] = pow(f32, tonemappedColor[2], gammaExponent);
+                    }
                 }
 
                 // Invert the y... Different coordinate systems like always
