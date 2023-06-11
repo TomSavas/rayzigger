@@ -3,7 +3,7 @@ const zm = @import("zmath");
 const SDL = @import("sdl2");
 const pow = std.math.pow;
 const PI = std.math.pi;
-const print = std.io.getStdOut().writer().print;
+const print = std.debug.print;
 const printErr = std.io.getStdErr().writer().print;
 const Vector = std.meta.Vector;
 const Random = std.rand.Random;
@@ -114,7 +114,8 @@ pub const Chunk = struct {
         self.isProcessingReadonly = true;
 
         var previousSampleCount = self.sampleCount;
-        self.sampleCount += @intToFloat(f32, ctx.settings.spp);
+        self.sampleCount += @intToFloat(f32, ctx.settings.cmdSettings.sppPerPass);
+        //print("self sample count: {}\n", .{self.sampleCount});
 
         var yOffset: usize = 0;
         topLoop: while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
@@ -126,12 +127,14 @@ pub const Chunk = struct {
 
                 var color = Vector(3, f32){ 0.0, 0.0, 0.0 };
                 var sample: u32 = 0;
-                while (sample < ctx.settings.spp) : (sample += 1) {
-                    var u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[0]);
-                    var v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[1]);
+                while (sample < ctx.settings.cmdSettings.sppPerPass) : (sample += 1) {
+                    //var u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[0]);
+                    //var v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[1]);
+                    var u = (@intToFloat(f32, x) + (ctx.rng.float(f32) - 0.5) * 2.0) / @intToFloat(f32, ctx.settings.size[0]);
+                    var v = (@intToFloat(f32, y) + (ctx.rng.float(f32) - 0.5) * 2.0) / @intToFloat(f32, ctx.settings.size[1]);
 
                     var ray = ctx.camera.generateRay(u, v, ctx.rng);
-                    color += traceRay(ray, ctx.bvh, ctx.settings.maxBounces, ctx.rng);
+                    color += traceRay(ray, ctx.bvh, ctx.settings.cmdSettings.maxBounces, ctx.rng);
                 }
 
                 // Rolling average
@@ -248,8 +251,24 @@ pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
         }
 
         if (leastProcessedChunk) |chunk| {
+            // The least processed chunk is rendered to target spp, we're done
+            if (ctx.settings.cmdSettings.targetSpp) |targetSpp| {
+                if (@floatToInt(u32, chunk.sampleCount + 0.5) >= targetSpp) {
+                    chunk.processingLock.unlock();
+
+                    // But not in benchmark, idle until invalidation happens
+                    if (ctx.settings.cmdSettings.benchmark == null) {
+                        continue;
+                    } else {
+                        break;
+                    }
+                }
+            }
+
             chunk.render(ctx);
             chunk.processingLock.unlock();
+        } else {
+            print("Thread couldn't find a chunk to process, potentially more threads than chunks.\n", .{});
         }
 
         while (invalidationSignal) {
@@ -290,11 +309,6 @@ pub const RenderThreads = struct {
                 .bvh = bvh,
 
                 .settings = settings,
-
-                //.size = settings.size,
-                //.spp = settings.spp,
-                //.gamma = settings.gamma,
-                //.maxBounces = settings.maxBounces,
             };
 
             renderThreads.threads[threadId] = try Thread.spawn(.{}, renderThreadFn, .{&renderThreads.ctxs[threadId]});
@@ -303,15 +317,19 @@ pub const RenderThreads = struct {
         return renderThreads;
     }
 
+    pub fn blockUntilDone(self: *RenderThreads) void {
+        var threadId: usize = 0;
+        while (threadId < self.threads.len) : (threadId += 1) {
+            self.threads[threadId].join();
+        }
+    }
+
     pub fn deinit(self: *RenderThreads) void {
-        var threadid: u32 = 0;
-        while (threadid < 1) : (threadid += 1) {
-            self.ctxs[threadid].shouldTerminate = true;
+        var threadId: usize = 0;
+        while (threadId < self.threads.len) : (threadId += 1) {
+            self.ctxs[threadId].shouldTerminate = true;
         }
-        threadid = 0;
-        while (threadid < 1) : (threadid += 1) {
-            self.threads[threadid].join();
-        }
+        self.blockUntilDone();
 
         self.allocator.free(self.ctxs);
         self.allocator.free(self.threads);

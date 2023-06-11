@@ -68,13 +68,18 @@ pub const AABB = struct {
         var tmin: f32 = minDist;
         var tmax: f32 = maxDist;
         while (i < 3) : (i += 1) {
-            if (self.max[i] - self.min[i] < 0.0001) continue;
+            //if (self.max[i] - self.min[i] < 0.0001) continue;
 
-            var t0 = @min((self.min[i] - r.origin[i]) / r.dir[i], (self.max[i] - r.origin[i]) / r.dir[i]);
-            var t1 = @max((self.min[i] - r.origin[i]) / r.dir[i], (self.max[i] - r.origin[i]) / r.dir[i]);
+            var a = self.min[i] - r.origin[i];
+            var b = self.max[i] - r.origin[i];
 
-            tmin = @max(t0, tmin);
-            tmax = @min(t1, tmax);
+            var t0 = @min(a, b);
+            var t1 = @max(a, b);
+
+            if (r.dir[i] < 0) std.mem.swap(f32, &t0, &t1);
+
+            tmin = @max(t0 / r.dir[i], tmin);
+            tmax = @min(t1 / r.dir[i], tmax);
 
             if (tmax <= tmin) return false;
         }

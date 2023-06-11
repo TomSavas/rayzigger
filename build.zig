@@ -1,6 +1,7 @@
 const std = @import("std");
 const zmath = @import("libs/zmath/build.zig");
 const zmesh = @import("libs/zmesh/build.zig");
+const zigargs = @import("libs/zig-args/build.zig");
 const sdl_sdk = @import("libs/SDL.zig/Sdk.zig");
 
 const options_pkg_name = "build_options";
@@ -41,6 +42,12 @@ pub fn build(b: *std.build.Builder) void {
     const zmath_pkg = zmath.Package.build(b, .{});
     exe.addModule("zmath", zmath_pkg.zmath);
     exe.addModule("sdl2", sdk.getWrapperModule());
+
+    const zigargs_mod = b.createModule(.{
+        .source_file = .{ .path = "./libs/zig-args/args.zig" },
+        .dependencies = &.{},
+    });
+    exe.addModule("args", zigargs_mod);
 
     exe.install();
 

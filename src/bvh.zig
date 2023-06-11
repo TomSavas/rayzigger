@@ -54,7 +54,7 @@ pub const BVHNode = struct {
         if (self.children) |children| {
             var closestHit: ?Hit = null;
             var closestHitDist = maxDist;
-            for (children) |child| {
+            for (children) |*child| {
                 var maybeHit = child.hittable.testHit(r, minDist, closestHitDist);
 
                 if (maybeHit) |hit| {

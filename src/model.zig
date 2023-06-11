@@ -68,6 +68,8 @@ pub const Model = struct {
                 if (primitive.material) |primitiveMat| matBlk: {
                     if (primitiveMat.has_pbr_metallic_roughness == 0) break :matBlk;
 
+                    //if (false) {
+                    //    _ = filepathRoot;
                     if (primitiveMat.pbr_metallic_roughness.base_color_texture.texture) |tex| {
                         var img = tex.image orelse break :matBlk;
                         var uri = img.uri orelse break :matBlk;
