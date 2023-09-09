@@ -139,15 +139,15 @@ pub const Renderer = struct {
 
             var maxLuminance = std.math.inf(f32);
             var y: usize = self.settings.size[1];
-            while (y > 0) {
-                y -= 1;
-                var x: usize = 0;
-                while (x < self.settings.size[0]) : (x += 1) {
-                    var i = y * self.settings.cmdSettings.width + x;
-                    var color = self.pixels[i];
-                    maxLuminance = @max(luminance(color), maxLuminance);
-                }
-            }
+            //while (y > 0) {
+            //    y -= 1;
+            //    var x: usize = 0;
+            //    while (x < self.settings.size[0]) : (x += 1) {
+            //        var i = y * self.settings.cmdSettings.width + x;
+            //        var color = self.pixels[i];
+            //        maxLuminance = @max(luminance(color), maxLuminance);
+            //    }
+            //}
 
             y = self.settings.size[1];
             while (y > 0) {
@@ -196,8 +196,39 @@ pub const Renderer = struct {
         }
     }
 
-    pub fn screenshot(self: *Renderer, path: []const u8) void {
-        _ = self;
-        _ = path;
+    pub fn ppmScreenshot(self: *Renderer, file: *const std.fs.File) !void {
+        var writer = file.writer();
+
+        try writer.print("P3\n", .{});
+        try writer.print("{} {}\n", .{ self.settings.size[0], self.settings.size[1] });
+        try writer.print("{}\n", .{255});
+
+        var x: usize = 0;
+        var y: usize = self.settings.size[1];
+        while (y > 0) {
+            y -= 1;
+            x = 0;
+            while (x < self.settings.size[0]) : (x += 1) {
+                var color = self.pixels[y * self.settings.size[0] + x];
+
+                var tonemappedColor = tonemapReinhardLuminance(color, std.math.inf(f32));
+                tonemappedColor = @min(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });
+
+                if (self.settings.cmdSettings.gamma == 2.0) {
+                    color = @sqrt(tonemappedColor);
+                } else {
+                    var gammaExponent = 1.0 / self.settings.cmdSettings.gamma;
+                    color[0] = pow(f32, tonemappedColor[0], gammaExponent);
+                    color[1] = pow(f32, tonemappedColor[1], gammaExponent);
+                    color[2] = pow(f32, tonemappedColor[2], gammaExponent);
+                }
+
+                var r = @truncate(u8, @floatToInt(u32, color[0] * 255));
+                var g = @truncate(u8, @floatToInt(u32, color[1] * 255));
+                var b = @truncate(u8, @floatToInt(u32, color[2] * 255));
+
+                try writer.print("{} {} {}\n", .{ r, g, b });
+            }
+        }
     }
 };

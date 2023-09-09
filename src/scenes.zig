@@ -36,8 +36,8 @@ pub const Scene = struct {
 pub fn devScene(allocator: std.mem.Allocator) anyerror!Scene {
     var scene = Scene.init(allocator, "devScene");
 
-    const cameraPos = Vector(4, f32){ -1.87689530e+00, 1.54253983e+00, -4.15354937e-01, 0.0e+00 };
-    const lookTarget = Vector(4, f32){ 0.0, 2, 0.0, 0.0 };
+    const cameraPos = Vector(4, f32){ -1.87689530e+00, 0.54253983e+00, -4.15354937e-01, 0.0e+00 };
+    const lookTarget = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
     scene.camera = Camera.init(cameraPos, lookTarget, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }, PI / 2.0, 16.0 / 9.0, 0.0, 10.0);
 
     var defaultMat = try scene.allocator.create(DielectricMat);

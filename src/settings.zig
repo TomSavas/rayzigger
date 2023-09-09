@@ -13,9 +13,9 @@ pub const Settings = struct {
         threads: ?u32 = null,
 
         benchmark: ?enum { dev, full } = null,
-        targetSpp: ?u32 = 64,
+        targetSpp: ?u32 = null,
 
-        sppPerPass: u32 = 32,
+        sppPerPass: u32 = 4,
         maxBounces: u32 = 4,
         gamma: f32 = 2,
         chunkSize: u32 = 32,
@@ -25,7 +25,8 @@ pub const Settings = struct {
             .w = "width",
             .t = "threads",
             .b = "benchmark",
-            .s = "sppPerPass",
+            .s = "targetSpp",
+            .p = "sppPerPass",
             .c = "chunkSize",
         };
     };

@@ -44,7 +44,7 @@ pub const BVHNode = struct {
         }
     }
 
-    pub fn testHit(hittable: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
+    pub fn testHit(hittable: *const Hittable, r: *const Ray, minDist: f32, maxDist: f32) ?Hit {
         const self = @fieldParentPtr(BVHNode, "hittable", hittable);
 
         if (!self.aabb.overlaps(r, minDist, maxDist)) {

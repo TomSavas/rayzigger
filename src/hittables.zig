@@ -62,7 +62,7 @@ pub const AABB = struct {
         };
     }
 
-    pub fn overlaps(self: AABB, r: Ray, minDist: f32, maxDist: f32) bool {
+    pub fn overlaps(self: AABB, r: *const Ray, minDist: f32, maxDist: f32) bool {
         var i: u32 = 0;
 
         var tmin: f32 = minDist;
@@ -111,10 +111,10 @@ pub const AABB = struct {
 };
 
 pub const Hittable = struct {
-    testHitFn: *const fn (*const Hittable, Ray, f32, f32) ?Hit,
+    testHitFn: *const fn (*const Hittable, *const Ray, f32, f32) ?Hit,
     aabbFn: *const fn (*const Hittable) AABB,
 
-    pub fn testHit(self: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
+    pub fn testHit(self: *const Hittable, r: *const Ray, minDist: f32, maxDist: f32) ?Hit {
         return self.testHitFn(self, r, minDist, maxDist);
     }
 
@@ -133,7 +133,7 @@ pub const Sphere = struct {
         return Sphere{ .material = mat, .center = center, .radius = radius, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
     }
 
-    pub fn testHit(hittable: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
+    pub fn testHit(hittable: *const Hittable, r: *const Ray, minDist: f32, maxDist: f32) ?Hit {
         const self = @fieldParentPtr(Sphere, "hittable", hittable);
 
         var toOrigin = r.origin - self.center;
@@ -193,10 +193,10 @@ pub const Triangle = struct {
         return Triangle{ .material = mat, .points = points, .uvs = uvs, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
     }
 
-    fn barycentric(self: Triangle, p: Vector(4, f32)) Vector(4, f32) {
+    fn barycentric(self: *const Triangle, p: *const Vector(4, f32)) Vector(4, f32) {
         var areaABC = zm.dot3(self.normal, zm.cross3((self.points[1] - self.points[0]), (self.points[2] - self.points[0])))[0];
-        var areaPBC = zm.dot3(self.normal, zm.cross3((self.points[1] - p), (self.points[2] - p)))[0];
-        var areaPCA = zm.dot3(self.normal, zm.cross3((self.points[2] - p), (self.points[0] - p)))[0];
+        var areaPBC = zm.dot3(self.normal, zm.cross3((self.points[1] - p.*), (self.points[2] - p.*)))[0];
+        var areaPCA = zm.dot3(self.normal, zm.cross3((self.points[2] - p.*), (self.points[0] - p.*)))[0];
 
         var x = areaPBC / areaABC;
         var y = areaPCA / areaABC;
@@ -204,14 +204,14 @@ pub const Triangle = struct {
         return Vector(4, f32){ x, y, z, 0.0 };
     }
 
-    pub fn centroid(self: Triangle) Vector(4, f32) {
+    pub fn centroid(self: *const Triangle) Vector(4, f32) {
         const a = self.hittable.aabb();
         const len = a.max - a.min;
 
         return .{ a.min[0] + len[0] / 2.0, a.min[1] + len[1] / 2.0, a.min[2] + len[2] / 2.0, a.min[3] + len[3] / 2.0 };
     }
 
-    pub fn testHit(hittable: *const Hittable, r: Ray, minDist: f32, maxDist: f32) ?Hit {
+    pub fn testHit(hittable: *const Hittable, r: *const Ray, minDist: f32, maxDist: f32) ?Hit {
         const self = @fieldParentPtr(Triangle, "hittable", hittable);
 
         var t = (self.d - zm.dot3(self.normal, r.origin)[0]) / (zm.dot3(r.dir, self.normal)[0]);
@@ -219,7 +219,7 @@ pub const Triangle = struct {
             return null;
         }
 
-        var bary = self.barycentric(r.at(t));
+        var bary = self.barycentric(&r.at(t));
         if (bary[0] > 1 or bary[0] < 0 or bary[1] > 1 or bary[1] < 0 or bary[2] > 1 or bary[2] < 0) {
             return null;
         }

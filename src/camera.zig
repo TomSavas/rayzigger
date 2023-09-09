@@ -53,6 +53,8 @@ pub const Camera = struct {
 
         var cam = Camera{ .viewportSize = viewportSize, .origin = pos, .right = right, .up = up, .focusPlaneLowerLeft = focusPlaneLowerLeft, .lensRadius = aperture / 2.0, .focusDist = focusDist, .rotation = rotation, .prevMouseX = 0, .prevMouseY = 0 };
 
+        cam.recalculateRotation();
+
         return cam;
     }
 
@@ -67,7 +69,7 @@ pub const Camera = struct {
         self.focusPlaneLowerLeft = self.origin - self.right * zm.f32x4s(0.5) - self.up * zm.f32x4s(0.5) + @splat(4, self.focusDist) * self.unitForward;
     }
 
-    pub fn generateRay(self: Camera, u: f32, v: f32, rng: Random) Ray {
+    pub fn generateRay(self: *const Camera, u: f32, v: f32, rng: Random) Ray {
         var r0 = Vector(4, f32){ self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), 0 };
         var r1 = Vector(4, f32){ self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), 0 };
         const onLenseOffset = zm.normalize3(self.up) * r0 + zm.normalize3(self.right) * r1;

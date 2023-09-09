@@ -9,6 +9,7 @@ const Settings = @import("settings.zig").Settings;
 const Renderer = @import("renderer.zig").Renderer;
 
 pub const BenchmarkResult = struct {
+    scene: []const u8,
     times: std.StringHashMap(f64),
     resultFilenamePrefix: []const u8,
 
@@ -17,21 +18,45 @@ pub const BenchmarkResult = struct {
         var fixedAllocator = std.heap.FixedBufferAllocator.init(&buf);
         var allocator = fixedAllocator.allocator();
 
-        var resultFilename = try std.mem.concat(allocator, u8, &.{ self.resultFilenamePrefix, ".bench" });
-        var resultPath = try std.fs.path.join(allocator, &.{ "./benchmarks", resultFilename });
+        const unitTime = try std.fmt.allocPrint(allocator, "{d}", .{std.time.timestamp()});
+        const benchPath = try std.fs.path.join(allocator, &.{ "./benchmarks", unitTime });
+        try std.fs.cwd().makePath(benchPath);
 
-        var screenshotFilename = try std.mem.concat(allocator, u8, &.{ self.resultFilenamePrefix, ".ppm" });
-        var screenshotPath = try std.fs.path.join(allocator, &.{ "./benchmarks", screenshotFilename });
+        {
+            const resultFilename = try std.mem.concat(allocator, u8, &.{ self.resultFilenamePrefix, ".bench.csv" });
+            const resultPath = try std.fs.path.join(allocator, &.{ benchPath, resultFilename });
+            print("Writing benchmark info to: {s}\n", .{resultPath});
 
-        print("Writing benchmark info to: {s}\n", .{resultPath});
+            const file = try std.fs.cwd().createFile(
+                resultPath,
+                .{ .read = true },
+            );
+            var writer = file.writer();
+            defer file.close();
 
-        print("Writing screenshot     to: {s}\n", .{screenshotPath});
-        renderer.screenshot(screenshotPath);
+            var timesIt = self.times.iterator();
+            while (timesIt.next()) |entry| {
+                try writer.print("{s}, {s}, {d}\n", .{ self.scene, entry.key_ptr.*, entry.value_ptr.* });
+            }
+        }
+
+        {
+            const screenshotFilename = try std.mem.concat(allocator, u8, &.{ self.resultFilenamePrefix, ".ppm" });
+            const screenshotPath = try std.fs.path.join(allocator, &.{ benchPath, screenshotFilename });
+            print("Writing screenshot     to: {s}\n", .{screenshotPath});
+
+            const file = try std.fs.cwd().createFile(
+                screenshotPath,
+                .{ .read = true },
+            );
+            defer file.close();
+            try renderer.ppmScreenshot(&file);
+        }
     }
 };
 
 pub fn benchmark(allocator: std.mem.Allocator, scene: *Scene, renderer: *Renderer) anyerror!BenchmarkResult {
-    var result = BenchmarkResult{ .times = std.StringHashMap(f64).init(allocator), .resultFilenamePrefix = scene.title };
+    var result = BenchmarkResult{ .scene = scene.title, .times = std.StringHashMap(f64).init(allocator), .resultFilenamePrefix = scene.title };
 
     print("--------------------\n", .{});
     print("Benchmarking scene: {s}\n", .{scene.title});
@@ -72,6 +97,11 @@ pub fn main() anyerror!void {
     defer renderer.deinit();
 
     if (settings.cmdSettings.benchmark) |benchMode| {
+        if (settings.cmdSettings.targetSpp == null) {
+            settings.cmdSettings.targetSpp = 128;
+            print("No targetSpp set in benchmark mode. Defaulting to {} spp.\n", .{settings.cmdSettings.targetSpp.?});
+        }
+
         var arena = std.heap.ArenaAllocator.init(allocator);
         var arenaAllocator = arena.allocator();
 

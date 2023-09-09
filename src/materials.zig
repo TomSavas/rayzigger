@@ -30,9 +30,9 @@ fn randomInUnitHemisphere(rng: Random, normal: Vector(4, f32)) Vector(4, f32) {
 }
 
 pub const Material = struct {
-    scatterFn: *const fn (*const Material, *const Hit, Ray, Random) ScatteredRay,
+    scatterFn: *const fn (*const Material, *const Hit, *const Ray, Random) ScatteredRay,
 
-    pub fn scatter(self: *const Material, hit: *const Hit, r: Ray, rng: Random) ScatteredRay {
+    pub fn scatter(self: *const Material, hit: *const Hit, r: *const Ray, rng: Random) ScatteredRay {
         return self.scatterFn(self, hit, r, rng);
     }
 };
@@ -45,7 +45,7 @@ pub const LambertianMat = struct {
         return LambertianMat{ .color = color, .material = Material{ .scatterFn = scatter } };
     }
 
-    pub fn scatter(material: *const Material, hit: *const Hit, _: Ray, rng: Random) ScatteredRay {
+    pub fn scatter(material: *const Material, hit: *const Hit, _: *const Ray, rng: Random) ScatteredRay {
         const self = @fieldParentPtr(LambertianMat, "material", material);
 
         var newDir = randomInUnitHemisphere(rng, hit.normal);
@@ -67,7 +67,7 @@ pub const LambertianTexMat = struct {
         self.texture.deinit();
     }
 
-    pub fn scatter(material: *const Material, hit: *const Hit, _: Ray, rng: Random) ScatteredRay {
+    pub fn scatter(material: *const Material, hit: *const Hit, _: *const Ray, rng: Random) ScatteredRay {
         const self = @fieldParentPtr(LambertianTexMat, "material", material);
         const color = self.texture.sample(hit.uv);
 
@@ -91,7 +91,7 @@ pub const MetalMat = struct {
         return MetalMat{ .color = color, .roughness = roughness, .material = Material{ .scatterFn = scatter } };
     }
 
-    pub fn scatter(material: *const Material, hit: *const Hit, r: Ray, rng: Random) ScatteredRay {
+    pub fn scatter(material: *const Material, hit: *const Hit, r: *const Ray, rng: Random) ScatteredRay {
         const self = @fieldParentPtr(MetalMat, "material", material);
 
         var newDir = reflect(r.dir, hit.normal) + @splat(4, self.roughness) * randomInUnitSphere(rng);
@@ -127,7 +127,7 @@ pub const DielectricMat = struct {
         return r0 + (1.0 - r0) * pow(f32, 1.0 - cos, 5.0);
     }
 
-    pub fn scatter(material: *const Material, hit: *const Hit, r: Ray, rng: Random) ScatteredRay {
+    pub fn scatter(material: *const Material, hit: *const Hit, r: *const Ray, rng: Random) ScatteredRay {
         const self = @fieldParentPtr(DielectricMat, "material", material);
 
         var refractionIndex = self.refractionIndex;
@@ -162,7 +162,7 @@ pub const EmissiveMat = struct {
         return EmissiveMat{ .color = color, .material = Material{ .scatterFn = scatter } };
     }
 
-    pub fn scatter(material: *const Material, hit: *const Hit, _: Ray, rng: Random) ScatteredRay {
+    pub fn scatter(material: *const Material, hit: *const Hit, _: *const Ray, rng: Random) ScatteredRay {
         const self = @fieldParentPtr(LambertianMat, "material", material);
 
         var newDir = randomInUnitHemisphere(rng, hit.normal);

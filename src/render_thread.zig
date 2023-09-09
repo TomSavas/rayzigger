@@ -58,7 +58,7 @@ const BVH = @import("bvh.zig").BVHNode;
 //}
 
 // TODO: implement atmospheric scattering
-fn background(r: Ray) Vector(3, f32) {
+fn background(r: *const Ray) Vector(3, f32) {
     var y = zm.normalize3(r.dir)[1];
     // -1; 1 -> 0; 1
     y = (y + 1.0) * 0.5;
@@ -71,7 +71,7 @@ fn background(r: Ray) Vector(3, f32) {
     return zm.lerp(white, blue, percentage);
 }
 
-fn traceRay(ray: Ray, bvh: BVH, remainingBounces: u32, rng: Random) Vector(3, f32) {
+fn traceRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) Vector(3, f32) {
     if (remainingBounces <= 0) {
         return Vector(3, f32){ 0.0, 0.0, 0.0 };
     }
@@ -91,7 +91,7 @@ fn traceRay(ray: Ray, bvh: BVH, remainingBounces: u32, rng: Random) Vector(3, f3
 
     if (nearestHit) |hit| {
         var scatteredRay = hitMaterial.?.scatter(&hit, ray, rng);
-        return scatteredRay.emissiveness + scatteredRay.attenuation * traceRay(scatteredRay.ray, bvh, remainingBounces - 1, rng);
+        return scatteredRay.emissiveness + scatteredRay.attenuation * traceRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng);
     } else {
         return background(ray);
     }
@@ -134,7 +134,7 @@ pub const Chunk = struct {
                     var v = (@intToFloat(f32, y) + (ctx.rng.float(f32) - 0.5) * 2.0) / @intToFloat(f32, ctx.settings.size[1]);
 
                     var ray = ctx.camera.generateRay(u, v, ctx.rng);
-                    color += traceRay(ray, ctx.bvh, ctx.settings.cmdSettings.maxBounces, ctx.rng);
+                    color += traceRay(&ray, &ctx.bvh, ctx.settings.cmdSettings.maxBounces, ctx.rng);
                 }
 
                 // Rolling average
