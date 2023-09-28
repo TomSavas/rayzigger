@@ -1,3 +1,4 @@
+const cTime = @cImport(@cInclude("time.h"));
 const std = @import("std");
 const zmesh = @import("zmesh");
 const print = std.debug.print;
@@ -18,7 +19,13 @@ pub const BenchmarkResult = struct {
         var fixedAllocator = std.heap.FixedBufferAllocator.init(&buf);
         var allocator = fixedAllocator.allocator();
 
-        const unitTime = try std.fmt.allocPrint(allocator, "{d}", .{std.time.timestamp()});
+        const unitTime = formattedTime: {
+            // TODO: remove C dependency once Zig has it's own time formatter
+            var timeBuf: [32]u8 = undefined;
+            const localTime = cTime.localtime(&std.time.timestamp());
+            const timeLength = cTime.strftime(@ptrCast([*c]u8, @alignCast(@alignOf(u8), &timeBuf)), 32, "%Y_%m_%d-%H:%M:%S", localTime);
+            break :formattedTime try std.fmt.allocPrint(allocator, "{s}", .{timeBuf[0..timeLength]});
+        };
         const benchPath = try std.fs.path.join(allocator, &.{ "./benchmarks", unitTime });
         try std.fs.cwd().makePath(benchPath);
 
