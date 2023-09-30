@@ -3,8 +3,7 @@ const zm = @import("zmath");
 const SDL = @import("sdl2");
 const pow = std.math.pow;
 const PI = std.math.pi;
-const print = std.io.getStdOut().writer().print;
-const printErr = std.io.getStdErr().writer().print;
+const print = std.debug.print;
 const Vector = std.meta.Vector;
 const Random = std.rand.Random;
 const DefaultRandom = std.rand.DefaultPrng;
@@ -29,29 +28,28 @@ pub const Camera = struct {
     unitRight: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
     unitUp: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
 
-    rotation: zm.Quat,
+    rotation: zm.Mat,
 
     prevMouseX: i32,
     prevMouseY: i32,
 
-    pub fn init(pos: Vector(4, f32), lookAt: Vector(4, f32), requestedUp: Vector(4, f32), vfov: f32, aspectRatio: f32, aperture: f32, focusDist: f32) Camera {
+    pub fn init(pos: Vector(4, f32), lookAt: Vector(4, f32), vfov: f32, aspectRatio: f32, aperture: f32, focusDist: f32) Camera {
         const h = @sin(vfov / 2.0) / @cos(vfov / 2.0);
         const viewportHeight = 2.0 * h;
         const viewportSize = Vector(2, f32){ viewportHeight * aspectRatio, viewportHeight };
 
-        _ = requestedUp;
-        var rotationMat = zm.lookAtRh(pos, lookAt, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 });
-        var rotation = zm.matToQuat(rotationMat);
-
-        var forward = zm.qmul(rotation, Vector(4, f32){ 0.0, 0.0, -1.0, 0.0 });
-        var right = zm.qmul(rotation, Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 });
-        var up = zm.qmul(rotation, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 });
-
-        right = @splat(4, viewportSize[0] * focusDist) * right;
-        up = @splat(4, viewportHeight * focusDist) * up;
-        const focusPlaneLowerLeft = pos - right * zm.f32x4s(0.5) - up * zm.f32x4s(0.5) + @splat(4, focusDist) * forward;
-
-        var cam = Camera{ .viewportSize = viewportSize, .origin = pos, .right = right, .up = up, .focusPlaneLowerLeft = focusPlaneLowerLeft, .lensRadius = aperture / 2.0, .focusDist = focusDist, .rotation = rotation, .prevMouseX = 0, .prevMouseY = 0 };
+        var cam = Camera{
+            .viewportSize = viewportSize,
+            .origin = pos,
+            .right = undefined,
+            .up = undefined,
+            .focusPlaneLowerLeft = undefined,
+            .lensRadius = aperture / 2.0,
+            .focusDist = focusDist,
+            .rotation = zm.lookAtRh(pos, lookAt, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }),
+            .prevMouseX = 0,
+            .prevMouseY = 0,
+        };
 
         cam.recalculateRotation();
 
@@ -59,10 +57,17 @@ pub const Camera = struct {
     }
 
     pub fn recalculateRotation(self: *Camera) void {
-        var rotationMat = zm.quatToMat(self.rotation);
-        self.unitForward = zm.mul(rotationMat, Vector(4, f32){ 0.0, 0.0, -1.0, 0.0 });
-        self.unitRight = zm.mul(rotationMat, Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 });
-        self.unitUp = zm.mul(rotationMat, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 });
+        self.unitUp = Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 };
+        self.unitForward = zm.normalize3(zm.mul(self.rotation, Vector(4, f32){ 0.0, 0.0, -1.0, 0.0 }));
+        self.unitRight = zm.normalize3(zm.cross3(self.unitForward, self.unitUp));
+        self.unitUp = zm.normalize3(zm.cross3(self.unitRight, self.unitForward)); // Renormalize
+
+        self.rotation = zm.transpose(.{
+            zm.f32x4(self.unitRight[0], self.unitRight[1], self.unitRight[2], 0),
+            zm.f32x4(self.unitUp[0], self.unitUp[1], self.unitUp[2], 0),
+            zm.f32x4(-self.unitForward[0], -self.unitForward[1], -self.unitForward[2], 0),
+            zm.f32x4(0.0, 0.0, 0.0, 1.0),
+        });
 
         self.right = @splat(4, self.viewportSize[0] * self.focusDist) * self.unitRight;
         self.up = @splat(4, self.viewportSize[1] * self.focusDist) * self.unitUp;
@@ -81,7 +86,7 @@ pub const Camera = struct {
 
     pub fn handleInputEvent(self: *Camera, inputEvent: SDL.Event) bool {
         var moveDir: ?Vector(4, f32) = null;
-        var mouseRotation: ?Vector(4, f32) = null;
+        var mouseRotation: ?zm.Mat = null;
 
         switch (inputEvent) {
             .key_down => |key| {
@@ -101,7 +106,7 @@ pub const Camera = struct {
                     var yDiff = self.prevMouseY - mouse.y;
 
                     if (xDiff != 0 or yDiff != 0) {
-                        mouseRotation = zm.quatFromRollPitchYaw(@intToFloat(f32, -yDiff) / 1000.0, @intToFloat(f32, -xDiff) / 1000.0, 0.0);
+                        mouseRotation = zm.matFromRollPitchYaw(@intToFloat(f32, -yDiff) / 1000.0, @intToFloat(f32, -xDiff) / 1000.0, 0.0);
                     }
                 }
                 self.prevMouseX = mouse.x;
@@ -115,7 +120,7 @@ pub const Camera = struct {
         }
 
         if (mouseRotation) |rot| {
-            self.rotation = zm.qmul(self.rotation, rot);
+            self.rotation = zm.mul(self.rotation, rot);
         }
 
         if (moveDir != null or mouseRotation != null) {
