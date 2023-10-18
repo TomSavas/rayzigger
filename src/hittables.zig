@@ -113,6 +113,7 @@ pub const AABB = struct {
 pub const Hittable = struct {
     testHitFn: *const fn (*const Hittable, *const Ray, f32, f32) ?Hit,
     aabbFn: *const fn (*const Hittable) AABB,
+    material: ?*const Material,
 
     pub fn testHit(self: *const Hittable, r: *const Ray, minDist: f32, maxDist: f32) ?Hit {
         return self.testHitFn(self, r, minDist, maxDist);
@@ -127,10 +128,9 @@ pub const Sphere = struct {
     center: Vector(4, f32),
     radius: f32,
     hittable: Hittable,
-    material: *const Material,
 
     pub fn init(mat: *const Material, center: Vector(4, f32), radius: f32) Sphere {
-        return Sphere{ .material = mat, .center = center, .radius = radius, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
+        return Sphere{ .center = center, .radius = radius, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb, .material = mat } };
     }
 
     pub fn testHit(hittable: *const Hittable, r: *const Ray, minDist: f32, maxDist: f32) ?Hit {
@@ -162,7 +162,7 @@ pub const Sphere = struct {
             hitFrontFace = false;
         }
 
-        return Hit{ .location = location, .normal = normal, .rayFactor = x, .hitFrontFace = hitFrontFace, .uv = .{} };
+        return Hit{ .location = location, .normal = normal, .rayFactor = x, .hitFrontFace = hitFrontFace, .uv = .{ 0.0, 0.0 } };
     }
 
     pub fn aabb(hittable: *const Hittable) AABB {
@@ -182,7 +182,6 @@ pub const Triangle = struct {
     d: f32,
 
     hittable: Hittable,
-    material: *const Material,
 
     pub fn init(mat: *const Material, points: [3]Vector(4, f32), uvs: [3]Vector(2, f32)) Triangle {
         var edge0 = points[1] - points[0];
@@ -190,7 +189,7 @@ pub const Triangle = struct {
         var normal = zm.normalize3(zm.cross3(edge0, edge1));
         var d = zm.dot3(normal, points[0])[0];
 
-        return Triangle{ .material = mat, .points = points, .uvs = uvs, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb } };
+        return Triangle{ .points = points, .uvs = uvs, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb, .material = mat } };
     }
 
     fn barycentric(self: *const Triangle, p: *const Vector(4, f32)) Vector(4, f32) {
@@ -213,7 +212,10 @@ pub const Triangle = struct {
 
     pub fn testHit(hittable: *const Hittable, r: *const Ray, minDist: f32, maxDist: f32) ?Hit {
         const self = @fieldParentPtr(Triangle, "hittable", hittable);
+        return self.testHitTriangle(r, minDist, maxDist);
+    }
 
+    pub fn testHitTriangle(self: *const Triangle, r: *const Ray, minDist: f32, maxDist: f32) ?Hit {
         var t = (self.d - zm.dot3(self.normal, r.origin)[0]) / (zm.dot3(r.dir, self.normal)[0]);
         if (t < 0 or t < minDist or t > maxDist) {
             return null;

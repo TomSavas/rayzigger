@@ -23,6 +23,7 @@ const MetalMat = @import("materials.zig").MetalMat;
 const DielectricMat = @import("materials.zig").DielectricMat;
 
 const Camera = @import("camera.zig").Camera;
+const CameraTransform = @import("camera.zig").CameraTransform;
 const Settings = @import("settings.zig").Settings;
 
 const BVH = @import("bvh.zig").BVHNode;
@@ -65,57 +66,147 @@ fn background(r: *const Ray) Vector(3, f32) {
 
     var percentage = 0.2 + y * 0.8;
 
+    //const white = Vector(3, f32){ 0.01, 0.01, 0.01 };
+    //const blue = Vector(3, f32){ 0.0, 0.0, 0.05 };
     const white = Vector(3, f32){ 1.0, 1.0, 1.0 };
-    const blue = Vector(3, f32){ 0.5, 0.7, 1.0 };
+    const blue = Vector(3, f32){ 0.2, 0.3, 1.0 };
 
     return zm.lerp(white, blue, percentage);
 }
 
-fn traceRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) Vector(3, f32) {
+const TraceResult = struct {
+    color: Vector(3, f32),
+    location: Vector(4, f32),
+};
+
+fn traceRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) TraceResult {
+    if (remainingBounces <= 0) {
+        return TraceResult{ .color = Vector(3, f32){ 0.0, 0.0, 0.0 }, .location = Vector(4, f32){ 100000000.0, 100000000.0, 100000000.0, 0.0 } };
+    }
+
+    var nearestHitDistance: f32 = std.math.inf(f32);
+    var bvhHit = bvh.hittable.testHit(ray, 0.001, nearestHitDistance);
+    if (bvhHit == null) {
+        return TraceResult{ .color = background(ray), .location = Vector(4, f32){ 200000000.0, 200000000.0, 200000000.0, 0.0 } };
+    }
+
+    var scatteredRay = bvhHit.?.material.?.scatter(&bvhHit.?, ray, rng);
+    return TraceResult{ .color = scatteredRay.emissiveness + scatteredRay.attenuation * traceSecondaryRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng), .location = bvhHit.?.location };
+}
+
+fn traceSecondaryRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) Vector(3, f32) {
     if (remainingBounces <= 0) {
         return Vector(3, f32){ 0.0, 0.0, 0.0 };
     }
 
-    var nearestHit: ?Hit = null;
-    var hitMaterial: ?*const Material = null;
     var nearestHitDistance: f32 = std.math.inf(f32);
-    if (nearestHit) |hit| {
-        nearestHitDistance = hit.rayFactor;
-    }
-
     var bvhHit = bvh.hittable.testHit(ray, 0.001, nearestHitDistance);
-    if (bvhHit != null) {
-        nearestHit = bvhHit;
-        hitMaterial = bvhHit.?.material;
-    }
-
-    if (nearestHit) |hit| {
-        var scatteredRay = hitMaterial.?.scatter(&hit, ray, rng);
-        return scatteredRay.emissiveness + scatteredRay.attenuation * traceRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng);
-    } else {
+    if (bvhHit == null) {
         return background(ray);
     }
+
+    var scatteredRay = bvhHit.?.material.?.scatter(&bvhHit.?, ray, rng);
+    return scatteredRay.emissiveness + scatteredRay.attenuation * traceSecondaryRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng);
 }
 
 pub const Chunk = struct {
     chunkTopRightPixelIndices: Vector(2, u32),
     chunkSize: Vector(2, u32),
 
+    cameraTransforms: [2]CameraTransform,
+
+    currentBufferIndex: u32,
+
     processingLock: Mutex,
     processed: bool,
-    sampleCount: f32,
+    sampleCount: ?u32,
     isProcessingReadonly: bool,
+    justInvalidated: bool,
 
     pub fn init(topRightPixelIndices: Vector(2, u32), chunkSize: Vector(2, u32)) Chunk {
-        return Chunk{ .chunkTopRightPixelIndices = topRightPixelIndices, .chunkSize = chunkSize, .processingLock = Mutex{}, .processed = false, .sampleCount = 0, .isProcessingReadonly = false };
+        return Chunk{
+            .chunkTopRightPixelIndices = topRightPixelIndices,
+            .chunkSize = chunkSize,
+            .cameraTransforms = .{ undefined, undefined },
+            .currentBufferIndex = 0,
+            .processingLock = Mutex{},
+            .processed = false,
+            .sampleCount = 0,
+            .isProcessingReadonly = false,
+            .justInvalidated = false,
+        };
+    }
+
+    pub fn reprojectFromLastFrame(self: *Chunk, ctx: *RenderThreadCtx) bool {
+        var reprojectedAnyPixels = false;
+
+        const previousBufferIndex = self.currentBufferIndex;
+        self.currentBufferIndex = @mod(previousBufferIndex + 1, 2);
+
+        self.sampleCount = self.sampleCount orelse 0;
+
+        const previousCameraTransform = self.cameraTransforms[previousBufferIndex];
+        const pixelCount = ctx.settings.size[0] * ctx.settings.size[1];
+
+        var yOffset: usize = 0;
+        while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
+            const y = self.chunkTopRightPixelIndices[1] + yOffset;
+
+            var xOffset: usize = 0;
+            while (xOffset < self.chunkSize[0]) : (xOffset += 1) {
+                const x = self.chunkTopRightPixelIndices[0] + xOffset;
+                const u = @intToFloat(f32, x) / @intToFloat(f32, ctx.settings.size[0]);
+                const v = @intToFloat(f32, y) / @intToFloat(f32, ctx.settings.size[1]);
+                // TODO: this has a bug when reprojecting into another pixel. We might be using the wrong "old" camera transform
+                // and we might be sampling the wrong buffers...
+                const index = y * ctx.settings.size[0] + x;
+
+                ctx.sampleCounts[self.currentBufferIndex][index] = 0;
+
+                const ray = ctx.camera.generateRay(u, v, ctx.rng);
+                const bvhHit = ctx.bvh.hittable.testHit(&ray, 0.001, std.math.inf(f32));
+                if (bvhHit == null) {
+                    continue;
+                }
+
+                const oldReconstructedRay = Ray{ .origin = previousCameraTransform.origin, .dir = zm.normalize3(bvhHit.?.location - previousCameraTransform.origin) };
+                const oldUv = previousCameraTransform.uvFromRay(oldReconstructedRay);
+                const validOldTexCoords = oldUv[0] >= 0.0 and oldUv[0] <= 1.0 and oldUv[1] >= 0.0 and oldUv[1] <= 1.0;
+
+                if (validOldTexCoords and ctx.sampleCounts[previousBufferIndex][index] > 0) {
+                    const oldTexCoords = Vector(2, i32){
+                        @floatToInt(i32, oldUv[0] * @intToFloat(f32, ctx.settings.size[0])),
+                        @floatToInt(i32, oldUv[1] * @intToFloat(f32, ctx.settings.size[1])),
+                    };
+                    const oldIndex = @intCast(usize, oldTexCoords[1] * @intCast(i32, ctx.settings.size[0]) + oldTexCoords[0]);
+
+                    const distDiffSq = @fabs(zm.lengthSq3(bvhHit.?.location - ctx.hitWorldLocations[previousBufferIndex][oldIndex])[0]);
+                    if (oldIndex >= 0 and oldIndex < pixelCount and distDiffSq < 0.01) {
+                        ctx.pixels[self.currentBufferIndex][index] = ctx.pixels[previousBufferIndex][oldIndex];
+                        ctx.hitWorldLocations[self.currentBufferIndex][index] = ctx.hitWorldLocations[previousBufferIndex][oldIndex];
+                        ctx.sampleCounts[self.currentBufferIndex][index] = ctx.sampleCounts[previousBufferIndex][oldIndex];
+
+                        reprojectedAnyPixels = true;
+                    }
+                }
+            }
+        }
+
+        return reprojectedAnyPixels;
     }
 
     pub fn render(self: *Chunk, ctx: *RenderThreadCtx) void {
         self.isProcessingReadonly = true;
+        defer self.isProcessingReadonly = false;
 
-        var previousSampleCount = self.sampleCount;
-        self.sampleCount += @intToFloat(f32, ctx.settings.cmdSettings.sppPerPass);
-        //print("self sample count: {}\n", .{self.sampleCount});
+        if (self.sampleCount == null and self.reprojectFromLastFrame(ctx)) {
+            return;
+        }
+
+        const previousBufferIndex = self.currentBufferIndex;
+        self.currentBufferIndex = @mod(previousBufferIndex + 1, 2);
+
+        const targetSampleCount = (self.sampleCount orelse 0) + ctx.settings.cmdSettings.sppPerPass;
 
         var yOffset: usize = 0;
         topLoop: while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
@@ -124,30 +215,35 @@ pub const Chunk = struct {
             var xOffset: usize = 0;
             while (xOffset < self.chunkSize[0]) : (xOffset += 1) {
                 const x = self.chunkTopRightPixelIndices[0] + xOffset;
+                const u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[0]);
+                const index = y * ctx.settings.size[0] + x;
 
-                var color = Vector(3, f32){ 0.0, 0.0, 0.0 };
-                var sample: u32 = 0;
-                while (sample < ctx.settings.cmdSettings.sppPerPass) : (sample += 1) {
-                    //var u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[0]);
-                    //var v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[1]);
-                    var u = (@intToFloat(f32, x) + (ctx.rng.float(f32) - 0.5) * 2.0) / @intToFloat(f32, ctx.settings.size[0]);
-                    var v = (@intToFloat(f32, y) + (ctx.rng.float(f32) - 0.5) * 2.0) / @intToFloat(f32, ctx.settings.size[1]);
+                const previousSampleCount = ctx.sampleCounts[previousBufferIndex][index];
 
-                    var ray = ctx.camera.generateRay(u, v, ctx.rng);
-                    color += traceRay(&ray, &ctx.bvh, ctx.settings.cmdSettings.maxBounces, ctx.rng);
+                var sampleValue = TraceResult{ .color = Vector(3, f32){ 0.0, 0.0, 0.0 }, .location = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 } };
+                var sampleCount: u32 = previousSampleCount;
+                while (sampleCount < targetSampleCount) : (sampleCount += 1) {
+                    const v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[1]);
+
+                    const ray = ctx.camera.generateRay(u, v, ctx.rng);
+                    const traceResult = traceRay(&ray, &ctx.bvh, ctx.settings.cmdSettings.maxBounces, ctx.rng);
+                    sampleValue.color += traceResult.color;
+                    sampleValue.location += traceResult.location;
                 }
 
                 // Rolling average
-                var ssp = self.sampleCount;
-                if (self.sampleCount <= 0) ssp = 1;
-                ctx.pixels[y * ctx.settings.size[0] + x] = (ctx.pixels[y * ctx.settings.size[0] + x] * @splat(3, previousSampleCount) + color) / @splat(3, ssp);
+                ctx.pixels[self.currentBufferIndex][index] = (ctx.pixels[previousBufferIndex][index] * @splat(3, @intToFloat(f32, previousSampleCount)) + sampleValue.color) / @splat(3, @intToFloat(f32, sampleCount));
+                ctx.hitWorldLocations[self.currentBufferIndex][index] = (ctx.hitWorldLocations[previousBufferIndex][index] * @splat(4, @intToFloat(f32, previousSampleCount)) + sampleValue.location) / @splat(4, @intToFloat(f32, sampleCount));
+                ctx.sampleCounts[self.currentBufferIndex][index] = sampleCount;
 
                 if (invalidationSignal) {
                     break :topLoop;
                 }
             }
         }
-        self.isProcessingReadonly = false;
+
+        self.sampleCount = targetSampleCount;
+        self.cameraTransforms[self.currentBufferIndex] = ctx.camera.transform;
     }
 };
 
@@ -158,12 +254,15 @@ pub const RenderThreadCtx = struct {
     rng: Random,
     camera: *Camera,
     bvh: BVH,
-    pixels: []Vector(3, f32),
+    pixels: [][]Vector(3, f32),
+    hitWorldLocations: [][]Vector(4, f32),
+    sampleCounts: [][]u32,
 
     settings: *const Settings,
 
     shouldTerminate: bool = false,
     invalidationSignal: bool = false,
+    uninvalidatedThreadCount: *std.atomic.Atomic(u32),
 };
 
 const SpiralChunkIterator = struct {
@@ -233,12 +332,12 @@ pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
         var chunks = SpiralChunkIterator.init(ctx.chunks, ctx.settings.chunkCountAlongAxis);
         while (chunks.next()) |chunk| {
             if (chunk.processingLock.tryLock()) {
-                var leastSamples: f32 = std.math.inf(f32);
+                var leastSamples: u32 = std.math.maxInt(u32);
                 if (leastProcessedChunk) |oldChunk| {
-                    leastSamples = oldChunk.sampleCount;
+                    leastSamples = oldChunk.sampleCount orelse 0;
                 }
 
-                if (chunk.sampleCount < leastSamples) {
+                if ((chunk.sampleCount orelse 0) < leastSamples) {
                     if (leastProcessedChunk) |oldChunk| {
                         oldChunk.processingLock.unlock();
                     }
@@ -253,7 +352,7 @@ pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
         if (leastProcessedChunk) |chunk| {
             // The least processed chunk is rendered to target spp, we're done
             if (ctx.settings.cmdSettings.targetSpp) |targetSpp| {
-                if (@floatToInt(u32, chunk.sampleCount + 0.5) >= targetSpp) {
+                if ((chunk.sampleCount orelse 0) >= targetSpp) {
                     chunk.processingLock.unlock();
 
                     // But not in benchmark, idle until invalidation happens
@@ -271,11 +370,14 @@ pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
             print("Thread couldn't find a chunk to process, potentially more threads than chunks.\n", .{});
         }
 
-        while (invalidationSignal) {
-            for (ctx.chunks) |*chunk| {
-                chunk.sampleCount = 0;
+        if (invalidationSignal) {
+            _ = ctx.uninvalidatedThreadCount.fetchSub(1, .Monotonic);
+            while (ctx.uninvalidatedThreadCount.load(.Monotonic) > 0) {
+                for (ctx.chunks) |*chunk| {
+                    chunk.sampleCount = null;
+                }
             }
-            std.time.sleep(10000.0);
+            invalidationSignal = false;
         }
     }
 }
@@ -286,13 +388,15 @@ pub const RenderThreads = struct {
     rngs: []DefaultRandom,
 
     allocator: std.mem.Allocator,
+    uninvalidatedThreadCount: std.atomic.Atomic(u32),
 
-    pub fn init(threadCount: u32, allocator: std.mem.Allocator, settings: *Settings, camera: *Camera, accumulatedPixels: []Vector(3, f32), bvh: BVH) anyerror!RenderThreads {
+    pub fn init(threadCount: u32, allocator: std.mem.Allocator, settings: *Settings, camera: *Camera, accumulatedPixels: [][]Vector(3, f32), hitWorldLocations: [][]Vector(4, f32), sampleCounts: [][]u32, bvh: BVH) anyerror!RenderThreads {
         var renderThreads = RenderThreads{
             .ctxs = try allocator.alloc(RenderThreadCtx, threadCount),
             .threads = try allocator.alloc(Thread, threadCount),
             .rngs = try allocator.alloc(DefaultRandom, threadCount),
             .allocator = allocator,
+            .uninvalidatedThreadCount = std.atomic.Atomic(u32){ .value = 0 },
         };
 
         var threadId: u32 = 0;
@@ -304,11 +408,14 @@ pub const RenderThreads = struct {
                 .chunks = settings.chunks,
                 .rng = renderThreads.rngs[threadId].random(),
                 .pixels = accumulatedPixels,
+                .hitWorldLocations = hitWorldLocations,
+                .sampleCounts = sampleCounts,
 
                 .camera = camera,
                 .bvh = bvh,
 
                 .settings = settings,
+                .uninvalidatedThreadCount = &renderThreads.uninvalidatedThreadCount,
             };
 
             renderThreads.threads[threadId] = try Thread.spawn(.{}, renderThreadFn, .{&renderThreads.ctxs[threadId]});
@@ -334,5 +441,10 @@ pub const RenderThreads = struct {
         self.allocator.free(self.ctxs);
         self.allocator.free(self.threads);
         self.allocator.free(self.rngs);
+    }
+
+    pub fn invalidate(self: *RenderThreads) void {
+        self.uninvalidatedThreadCount.store(@intCast(u32, self.threads.len), .Monotonic);
+        invalidationSignal = true;
     }
 };

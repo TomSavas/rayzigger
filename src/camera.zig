@@ -15,14 +15,11 @@ const Mutex = Thread.Mutex;
 const RayNamespace = @import("ray.zig");
 const Ray = RayNamespace.Ray;
 
-pub const Camera = struct {
-    viewportSize: Vector(2, f32),
+pub const CameraTransform = struct {
     origin: Vector(4, f32),
     right: Vector(4, f32),
     up: Vector(4, f32),
     focusPlaneLowerLeft: Vector(4, f32),
-    lensRadius: f32,
-    focusDist: f32,
 
     unitForward: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
     unitRight: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
@@ -30,33 +27,7 @@ pub const Camera = struct {
 
     rotation: zm.Mat,
 
-    prevMouseX: i32,
-    prevMouseY: i32,
-
-    pub fn init(pos: Vector(4, f32), lookAt: Vector(4, f32), vfov: f32, aspectRatio: f32, aperture: f32, focusDist: f32) Camera {
-        const h = @sin(vfov / 2.0) / @cos(vfov / 2.0);
-        const viewportHeight = 2.0 * h;
-        const viewportSize = Vector(2, f32){ viewportHeight * aspectRatio, viewportHeight };
-
-        var cam = Camera{
-            .viewportSize = viewportSize,
-            .origin = pos,
-            .right = undefined,
-            .up = undefined,
-            .focusPlaneLowerLeft = undefined,
-            .lensRadius = aperture / 2.0,
-            .focusDist = focusDist,
-            .rotation = zm.lookAtRh(pos, lookAt, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }),
-            .prevMouseX = 0,
-            .prevMouseY = 0,
-        };
-
-        cam.recalculateRotation();
-
-        return cam;
-    }
-
-    pub fn recalculateRotation(self: *Camera) void {
+    pub fn recalculateRotation(self: *CameraTransform, viewportSize: Vector(2, f32), focusDist: f32) void {
         self.unitUp = Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 };
         self.unitForward = zm.normalize3(zm.mul(self.rotation, Vector(4, f32){ 0.0, 0.0, -1.0, 0.0 }));
         self.unitRight = zm.normalize3(zm.cross3(self.unitForward, self.unitUp));
@@ -69,34 +40,117 @@ pub const Camera = struct {
             zm.f32x4(0.0, 0.0, 0.0, 1.0),
         });
 
-        self.right = @splat(4, self.viewportSize[0] * self.focusDist) * self.unitRight;
-        self.up = @splat(4, self.viewportSize[1] * self.focusDist) * self.unitUp;
-        self.focusPlaneLowerLeft = self.origin - self.right * zm.f32x4s(0.5) - self.up * zm.f32x4s(0.5) + @splat(4, self.focusDist) * self.unitForward;
+        self.right = @splat(4, viewportSize[0] * focusDist) * self.unitRight;
+        self.up = @splat(4, viewportSize[1] * focusDist) * self.unitUp;
+        self.focusPlaneLowerLeft = self.origin - self.right * zm.f32x4s(0.5) - self.up * zm.f32x4s(0.5) + @splat(4, focusDist) * self.unitForward;
+    }
+
+    pub fn generateDeterministicRay(self: *const CameraTransform, u: f32, v: f32) Ray {
+        const dir = self.focusPlaneLowerLeft + @splat(4, u) * self.right + @splat(4, v) * self.up - self.origin;
+        return Ray{ .origin = self.origin, .dir = dir };
+    }
+
+    pub fn uvFromRay(self: *const CameraTransform, r: Ray) Vector(2, f32) {
+        // Ray - focus plane intersection
+        var op = self.focusPlaneLowerLeft;
+        var on = zm.normalize3(zm.cross3(self.up, self.right));
+
+        var t = (zm.dot3(op, on)[0] - zm.dot3(r.origin, on)[0]) / zm.dot3(r.dir, on)[0];
+        var dir = r.dir * @splat(4, t);
+
+        const uvMult = -self.focusPlaneLowerLeft + r.origin + dir;
+
+        // Simple algebra to invert generateDeterministicRay
+        const u = (uvMult[0] * self.up[1] - uvMult[1] * self.up[0]) / (self.right[0] * self.up[1] - self.right[1] * self.up[0]);
+        const v = (uvMult[1] - u * self.right[1]) / self.up[1];
+
+        return Vector(2, f32){ u, v };
+    }
+};
+
+pub const Camera = struct {
+    viewportSize: Vector(2, f32),
+    lensRadius: f32,
+    focusDist: f32,
+
+    transform: CameraTransform,
+    oldTransform: CameraTransform,
+
+    prevMouseX: i32,
+    prevMouseY: i32,
+
+    pub fn init(pos: Vector(4, f32), lookAt: Vector(4, f32), vfov: f32, aspectRatio: f32, aperture: f32, focusDist: f32) Camera {
+        const h = @sin(vfov / 2.0) / @cos(vfov / 2.0);
+        const viewportHeight = 2.0 * h;
+        const viewportSize = Vector(2, f32){ viewportHeight * aspectRatio, viewportHeight };
+
+        var cam = Camera{
+            .viewportSize = viewportSize,
+            .lensRadius = aperture / 2.0,
+            .focusDist = focusDist,
+
+            .transform = CameraTransform{
+                .origin = pos,
+                .right = undefined,
+                .up = undefined,
+                .focusPlaneLowerLeft = undefined,
+                .rotation = zm.lookAtRh(pos, lookAt, Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }),
+            },
+            .oldTransform = undefined,
+
+            .prevMouseX = 0,
+            .prevMouseY = 0,
+        };
+
+        cam.transform.recalculateRotation(cam.viewportSize, cam.focusDist);
+
+        return cam;
+    }
+
+    pub fn uvFromOldRay(self: *const Camera, r: Ray) Vector(2, f32) {
+        var op = self.oldTransform.focusPlaneLowerLeft;
+        var on = zm.normalize3(zm.cross3(self.oldTransform.up, self.oldTransform.right));
+
+        var t = (zm.dot3(op, on)[0] - zm.dot3(r.origin, on)[0]) / zm.dot3(r.dir, on)[0];
+        var dir = r.dir * @splat(4, t);
+
+        const uvMult = -self.oldTransform.focusPlaneLowerLeft + r.origin + dir;
+
+        // Simple algebra to invert generateDeterministicRay
+        const u = (uvMult[0] * self.oldTransform.up[1] - uvMult[1] * self.oldTransform.up[0]) / (self.oldTransform.right[0] * self.oldTransform.up[1] - self.oldTransform.right[1] * self.oldTransform.up[0]);
+        const v = (uvMult[1] - u * self.oldTransform.right[1]) / self.oldTransform.up[1];
+
+        return Vector(2, f32){ u, v };
     }
 
     pub fn generateRay(self: *const Camera, u: f32, v: f32, rng: Random) Ray {
-        var r0 = Vector(4, f32){ self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), 0 };
-        var r1 = Vector(4, f32){ self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), 0 };
-        const onLenseOffset = zm.normalize3(self.up) * r0 + zm.normalize3(self.right) * r1;
+        _ = rng;
+        return self.transform.generateDeterministicRay(u, v);
+        //var r0 = Vector(4, f32){ self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), 0 };
+        //var r1 = Vector(4, f32){ self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), self.lensRadius * rng.float(f32), 0 };
+        //const onLenseOffset = zm.normalize3(self.up) * r0 + zm.normalize3(self.right) * r1;
 
-        const offsetOrigin = self.origin + onLenseOffset;
-        const dir = self.focusPlaneLowerLeft + @splat(4, u) * self.right + @splat(4, v) * self.up - offsetOrigin;
-        return Ray{ .origin = offsetOrigin, .dir = zm.normalize3(dir) };
+        //const offsetOrigin = self.origin + onLenseOffset;
+        //const dir = self.focusPlaneLowerLeft + @splat(4, u) * self.right + @splat(4, v) * self.up - offsetOrigin;
+        //return Ray{ .origin = offsetOrigin, .dir = zm.normalize3(dir) };
     }
 
     pub fn handleInputEvent(self: *Camera, inputEvent: SDL.Event) bool {
         var moveDir: ?Vector(4, f32) = null;
         var mouseRotation: ?zm.Mat = null;
 
+        self.oldTransform = self.transform;
+
         switch (inputEvent) {
             .key_down => |key| {
                 moveDir = switch (key.keycode) {
-                    .space => self.unitUp,
-                    .left_control => -self.unitUp,
-                    .w => self.unitForward,
-                    .s => -self.unitForward,
-                    .a => -self.unitRight,
-                    .d => self.unitRight,
+                    .space => self.transform.unitUp,
+                    .left_control => -self.transform.unitUp,
+                    .w => self.transform.unitForward,
+                    .s => -self.transform.unitForward,
+                    .a => -self.transform.unitRight,
+                    .d => self.transform.unitRight,
+                    .i => return true,
                     else => null,
                 };
             },
@@ -116,15 +170,15 @@ pub const Camera = struct {
         }
 
         if (moveDir) |dir| {
-            self.origin += dir * Vector(4, f32){ 0.1, 0.1, 0.1, 0.1 };
+            self.transform.origin += dir * Vector(4, f32){ 0.1, 0.1, 0.1, 0.1 };
         }
 
         if (mouseRotation) |rot| {
-            self.rotation = zm.mul(self.rotation, rot);
+            self.transform.rotation = zm.mul(self.transform.rotation, rot);
         }
 
         if (moveDir != null or mouseRotation != null) {
-            self.recalculateRotation();
+            self.transform.recalculateRotation(self.viewportSize, self.focusDist);
             return true;
         }
 

@@ -69,9 +69,9 @@ pub fn benchmark(allocator: std.mem.Allocator, scene: *Scene, renderer: *Rendere
     print("Benchmarking scene: {s}\n", .{scene.title});
 
     var timer = try std.time.Timer.start();
-    scene.buildBlas();
+    try scene.buildBlases();
     const blasBuildTime = timer.lap();
-    scene.buildTlas();
+    try scene.buildTlas();
     const tlasBuildTime = timer.lap();
     // Assumes we're in a non-interactive mode and terminate after rendering
     try renderer.headlessRender(scene);
@@ -131,7 +131,7 @@ pub fn main() anyerror!void {
         var defaultScene = try scenes.devScene(allocator);
         defer defaultScene.deinit();
 
-        defaultScene.buildFully();
+        try defaultScene.buildFully();
         try renderer.render(&defaultScene);
     }
 }

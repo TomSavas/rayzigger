@@ -48,7 +48,7 @@ fn tonemapReinhardLuminance(color: Vector(3, f32), maxLuminance: f32) Vector(3, 
     var l = luminance(color);
 
     var tonemappedReinhardLuminance = l * (1 + (l / (maxLuminance * maxLuminance)));
-    tonemappedReinhardLuminance /= 1.0 + l;
+    tonemappedReinhardLuminance /= (1.0 + l);
 
     // Remapping luminance
     return color * @splat(3, tonemappedReinhardLuminance / (l + 0.0000001));
@@ -58,14 +58,23 @@ pub const Renderer = struct {
     allocator: std.mem.Allocator,
     settings: *Settings,
 
-    pixels: []Vector(3, f32),
+    hitWorldLocations: [2][]Vector(4, f32),
+    pixels: [2][]Vector(3, f32),
+    sampleCounts: [2][]u32,
     renderThreads: RenderThread.RenderThreads,
 
     pub fn init(allocator: std.mem.Allocator, settings: *Settings) anyerror!Renderer {
-        var pixels: []Vector(3, f32) = try allocator.alloc(Vector(3, f32), settings.pixelCount);
-        std.mem.set(Vector(3, f32), pixels, Vector(3, f32){ 0.0, 0.0, 0.0 });
+        var pixels: [2][]Vector(3, f32) = .{ try allocator.alloc(Vector(3, f32), settings.pixelCount), try allocator.alloc(Vector(3, f32), settings.pixelCount) };
+        std.mem.set(Vector(3, f32), pixels[0], Vector(3, f32){ 0.0, 0.0, 0.0 });
+        std.mem.set(Vector(3, f32), pixels[1], Vector(3, f32){ 0.0, 0.0, 0.0 });
+        var hitWorldLocations: [2][]Vector(4, f32) = .{ try allocator.alloc(Vector(4, f32), settings.pixelCount), try allocator.alloc(Vector(4, f32), settings.pixelCount) };
+        std.mem.set(Vector(4, f32), hitWorldLocations[0], Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 });
+        std.mem.set(Vector(4, f32), hitWorldLocations[1], Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 });
+        var sampleCounts: [2][]u32 = .{ try allocator.alloc(u32, settings.pixelCount), try allocator.alloc(u32, settings.pixelCount) };
+        std.mem.set(u32, sampleCounts[0], 0);
+        std.mem.set(u32, sampleCounts[1], 0);
 
-        return Renderer{ .allocator = allocator, .settings = settings, .pixels = pixels, .renderThreads = undefined };
+        return Renderer{ .allocator = allocator, .settings = settings, .pixels = pixels, .hitWorldLocations = hitWorldLocations, .sampleCounts = sampleCounts, .renderThreads = undefined };
     }
 
     pub fn deinit(self: *Renderer) void {
@@ -79,14 +88,14 @@ pub const Renderer = struct {
     pub fn headlessRender(self: *Renderer, scene: *Scene) anyerror!void {
         print("Utilising {any} threads\n", .{self.settings.cmdSettings.threads});
 
-        var renderThreads = try RenderThread.RenderThreads.init(self.settings.cmdSettings.threads orelse 1, self.allocator, self.settings, &scene.camera, self.pixels, scene.models.items[0].bvh);
+        var renderThreads = try RenderThread.RenderThreads.init(self.settings.cmdSettings.threads orelse 1, self.allocator, self.settings, &scene.camera, &self.pixels, &self.hitWorldLocations, &self.sampleCounts, scene.tlas);
         renderThreads.blockUntilDone();
     }
 
     pub fn render(self: *Renderer, scene: *Scene) anyerror!void {
         print("Utilising {any} threads\n", .{self.settings.cmdSettings.threads});
 
-        var renderThreads = try RenderThread.RenderThreads.init(self.settings.cmdSettings.threads orelse 1, self.allocator, self.settings, &scene.camera, self.pixels, scene.models.items[0].bvh);
+        var renderThreads = try RenderThread.RenderThreads.init(self.settings.cmdSettings.threads orelse 1, self.allocator, self.settings, &scene.camera, &self.pixels, &self.hitWorldLocations, &self.sampleCounts, scene.tlas);
         defer renderThreads.deinit();
 
         // TODO: reallocate pixels if size has changed
@@ -120,12 +129,11 @@ pub const Renderer = struct {
                     .quit => break :mainLoop,
                     else => {
                         if (scene.camera.handleInputEvent(ev)) {
-                            RenderThread.invalidationSignal = true;
-                            std.time.sleep(@floatToInt(u64, 1 * 10000.0));
-                            RenderThread.invalidationSignal = false;
+                            renderThreads.invalidate();
                         } else if (ev == .key_down and ev.key_down.keycode == .p) {
-                            print("pos: {}\n", .{scene.camera.origin});
-                            try Ppm.outputImage(self.settings.size, self.pixels, self.settings.cmdSettings.gamma);
+                            print("pos: {}\n", .{scene.camera.transform.origin});
+                            // TODO: potentially wrong buffer
+                            try Ppm.outputImage(self.settings.size, self.pixels[0], self.settings.cmdSettings.gamma);
                         }
                     },
                 }
@@ -137,17 +145,22 @@ pub const Renderer = struct {
             var pixel_data = try texture.lock(null);
             defer pixel_data.release();
 
-            var maxLuminance = std.math.inf(f32);
+            var maxLuminance: f32 = 0.0;
             var y: usize = self.settings.size[1];
-            //while (y > 0) {
-            //    y -= 1;
-            //    var x: usize = 0;
-            //    while (x < self.settings.size[0]) : (x += 1) {
-            //        var i = y * self.settings.cmdSettings.width + x;
-            //        var color = self.pixels[i];
-            //        maxLuminance = @max(luminance(color), maxLuminance);
-            //    }
-            //}
+            while (y > 0) {
+                y -= 1;
+                var x: usize = 0;
+                while (x < self.settings.size[0]) : (x += 1) {
+                    var i = y * self.settings.cmdSettings.width + x;
+                    var chunkCol = @divTrunc(@intCast(u32, x), self.settings.cmdSettings.chunkSize);
+                    var chunkRow = @divTrunc(@intCast(u32, y), self.settings.cmdSettings.chunkSize);
+                    var chunkIndex = chunkCol + chunkRow * self.settings.chunkCountAlongAxis[0];
+                    var chunk = self.settings.chunks[chunkIndex];
+
+                    var color = self.pixels[chunk.currentBufferIndex][i];
+                    maxLuminance = @max(luminance(color), maxLuminance);
+                }
+            }
 
             y = self.settings.size[1];
             while (y > 0) {
@@ -158,15 +171,16 @@ pub const Renderer = struct {
                     var chunkCol = @divTrunc(@intCast(u32, x), self.settings.cmdSettings.chunkSize);
                     var chunkRow = @divTrunc(@intCast(u32, y), self.settings.cmdSettings.chunkSize);
                     var chunkIndex = chunkCol + chunkRow * self.settings.chunkCountAlongAxis[0];
+                    var chunk = self.settings.chunks[chunkIndex];
 
-                    var isChunkRendering = self.settings.chunks[chunkIndex].isProcessingReadonly;
+                    var isChunkRendering = chunk.isProcessingReadonly;
                     var isBorderingPixel = x == chunkCol * self.settings.cmdSettings.chunkSize or x == (chunkCol + 1) * (self.settings.cmdSettings.chunkSize) - 1;
                     isBorderingPixel = isBorderingPixel or y == chunkRow * self.settings.cmdSettings.chunkSize or y == (chunkRow + 1) * self.settings.cmdSettings.chunkSize - 1;
 
                     var borderColor = Vector(3, f32){ 1.0, 0.0, 0.0 };
                     var color = borderColor;
                     if (!isChunkRendering or !isBorderingPixel or self.settings.cmdSettings.sppPerPass < 16) {
-                        var tonemappedColor = tonemapReinhardLuminance(self.pixels[i], maxLuminance);
+                        var tonemappedColor = tonemapReinhardLuminance(self.pixels[chunk.currentBufferIndex][i], maxLuminance);
                         tonemappedColor = @min(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });
 
                         if (self.settings.cmdSettings.gamma == 2.0) {
@@ -209,7 +223,8 @@ pub const Renderer = struct {
             y -= 1;
             x = 0;
             while (x < self.settings.size[0]) : (x += 1) {
-                var color = self.pixels[y * self.settings.size[0] + x];
+                // TODO: wrong buffer
+                var color = self.pixels[0][y * self.settings.size[0] + x];
 
                 var tonemappedColor = tonemapReinhardLuminance(color, std.math.inf(f32));
                 tonemappedColor = @min(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });

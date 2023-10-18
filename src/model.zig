@@ -10,6 +10,7 @@ const Material = @import("materials.zig").Material;
 const LambertianMat = @import("materials.zig").LambertianMat;
 const LambertianTexMat = @import("materials.zig").LambertianTexMat;
 const Triangle = @import("hittables.zig").Triangle;
+const Hittable = @import("hittables.zig").Hittable;
 const BVH = @import("bvh.zig");
 
 pub const Model = struct {
@@ -89,11 +90,11 @@ pub const Model = struct {
                         };
                         material = &mat.material;
                     } else {
-                        var mat = allocator.create(LambertianMat) catch break :matBlk;
+                        //var mat = allocator.create(LambertianMat) catch break :matBlk;
 
-                        var baseColor = primitiveMat.pbr_metallic_roughness.base_color_factor;
-                        mat.* = LambertianMat.init(.{ baseColor[0], baseColor[1], baseColor[2] });
-                        material = &mat.material;
+                        //var baseColor = primitiveMat.pbr_metallic_roughness.base_color_factor;
+                        //mat.* = LambertianMat.init(.{ baseColor[0], baseColor[1], baseColor[2] });
+                        //material = &mat.material;
                     }
 
                     if (material) |mat| {
@@ -130,8 +131,15 @@ pub const Model = struct {
         }
 
         var rng = DefaultRandom.init(0);
-        //model.bvh = try BVH.buildSimpleBVH(rng.random(), allocator, model.triangles.items, 64);
-        model.bvh = try BVH.buildSAHBVH(rng.random(), allocator, model.triangles.items, 64, 128);
+
+        // Not great, but will do for now
+        var hittables = try ArrayList(*Hittable).initCapacity(allocator, model.triangles.items.len);
+        for (model.triangles.items) |*triangle| {
+            try hittables.append(&triangle.hittable);
+        }
+
+        model.bvh = try BVH.buildSimpleBVH(rng.random(), allocator, hittables.items, 64);
+        //model.bvh = try BVH.buildSAHBVH(rng.random(), allocator, model.triangles.items, 64, 128);
         return model;
     }
 
