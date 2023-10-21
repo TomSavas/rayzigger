@@ -5,7 +5,6 @@ const SDL = @import("sdl2");
 const pow = std.math.pow;
 const PI = std.math.pi;
 const print = std.debug.print;
-const Vector = std.meta.Vector;
 const Random = std.rand.Random;
 const DefaultRandom = std.rand.DefaultPrng;
 const ArrayList = std.ArrayList;
@@ -30,7 +29,6 @@ const RenderThread = @import("render_thread.zig");
 const Camera = @import("camera.zig").Camera;
 const Chunk = @import("render_thread.zig").Chunk;
 const RenderThreadCtx = @import("render_thread.zig").RenderThreadCtx;
-const Ppm = @import("ppm.zig");
 const Settings = @import("settings.zig").Settings;
 
 const BaryMat = @import("hittables.zig").BarycentricMat;
@@ -40,39 +38,39 @@ const Scene = @import("scenes.zig").Scene;
 
 const Model = @import("model.zig").Model;
 
-fn luminance(color: Vector(3, f32)) f32 {
+fn luminance(color: @Vector(3, f32)) f32 {
     return color[0] * 0.2126 + color[1] * 0.7152 + color[2] * 0.0722;
 }
 
-fn tonemapReinhardLuminance(color: Vector(3, f32), maxLuminance: f32) Vector(3, f32) {
+fn tonemapReinhardLuminance(color: @Vector(3, f32), maxLuminance: f32) @Vector(3, f32) {
     var l = luminance(color);
 
     var tonemappedReinhardLuminance = l * (1 + (l / (maxLuminance * maxLuminance)));
     tonemappedReinhardLuminance /= (1.0 + l);
 
     // Remapping luminance
-    return color * @splat(3, tonemappedReinhardLuminance / (l + 0.0000001));
+    return color * @as(@Vector(3, f32), @splat(tonemappedReinhardLuminance / (l + 0.0000001)));
 }
 
 pub const Renderer = struct {
     allocator: std.mem.Allocator,
     settings: *Settings,
 
-    hitWorldLocations: [2][]Vector(4, f32),
-    pixels: [2][]Vector(3, f32),
+    hitWorldLocations: [2][]@Vector(4, f32),
+    pixels: [2][]@Vector(3, f32),
     sampleCounts: [2][]u32,
     renderThreads: RenderThread.RenderThreads,
 
     pub fn init(allocator: std.mem.Allocator, settings: *Settings) anyerror!Renderer {
-        var pixels: [2][]Vector(3, f32) = .{ try allocator.alloc(Vector(3, f32), settings.pixelCount), try allocator.alloc(Vector(3, f32), settings.pixelCount) };
-        std.mem.set(Vector(3, f32), pixels[0], Vector(3, f32){ 0.0, 0.0, 0.0 });
-        std.mem.set(Vector(3, f32), pixels[1], Vector(3, f32){ 0.0, 0.0, 0.0 });
-        var hitWorldLocations: [2][]Vector(4, f32) = .{ try allocator.alloc(Vector(4, f32), settings.pixelCount), try allocator.alloc(Vector(4, f32), settings.pixelCount) };
-        std.mem.set(Vector(4, f32), hitWorldLocations[0], Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 });
-        std.mem.set(Vector(4, f32), hitWorldLocations[1], Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 });
+        var pixels: [2][]@Vector(3, f32) = .{ try allocator.alloc(@Vector(3, f32), settings.pixelCount), try allocator.alloc(@Vector(3, f32), settings.pixelCount) };
+        @memset(pixels[0], @Vector(3, f32){ 0.0, 0.0, 0.0 });
+        @memset(pixels[1], @Vector(3, f32){ 0.0, 0.0, 0.0 });
+        var hitWorldLocations: [2][]@Vector(4, f32) = .{ try allocator.alloc(@Vector(4, f32), settings.pixelCount), try allocator.alloc(@Vector(4, f32), settings.pixelCount) };
+        @memset(hitWorldLocations[0], @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 });
+        @memset(hitWorldLocations[1], @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 });
         var sampleCounts: [2][]u32 = .{ try allocator.alloc(u32, settings.pixelCount), try allocator.alloc(u32, settings.pixelCount) };
-        std.mem.set(u32, sampleCounts[0], 0);
-        std.mem.set(u32, sampleCounts[1], 0);
+        @memset(sampleCounts[0], 0);
+        @memset(sampleCounts[1], 0);
 
         return Renderer{ .allocator = allocator, .settings = settings, .pixels = pixels, .hitWorldLocations = hitWorldLocations, .sampleCounts = sampleCounts, .renderThreads = undefined };
     }
@@ -133,7 +131,7 @@ pub const Renderer = struct {
                         } else if (ev == .key_down and ev.key_down.keycode == .p) {
                             print("pos: {}\n", .{scene.camera.transform.origin});
                             // TODO: potentially wrong buffer
-                            try Ppm.outputImage(self.settings.size, self.pixels[0], self.settings.cmdSettings.gamma);
+                            //try Ppm.outputImage(self.settings.size, self.pixels[0], self.settings.cmdSettings.gamma);
                         }
                     },
                 }
@@ -152,8 +150,8 @@ pub const Renderer = struct {
                 var x: usize = 0;
                 while (x < self.settings.size[0]) : (x += 1) {
                     var i = y * self.settings.cmdSettings.width + x;
-                    var chunkCol = @divTrunc(@intCast(u32, x), self.settings.cmdSettings.chunkSize);
-                    var chunkRow = @divTrunc(@intCast(u32, y), self.settings.cmdSettings.chunkSize);
+                    var chunkCol = @divTrunc(@as(u32, @intCast(x)), self.settings.cmdSettings.chunkSize);
+                    var chunkRow = @divTrunc(@as(u32, @intCast(y)), self.settings.cmdSettings.chunkSize);
                     var chunkIndex = chunkCol + chunkRow * self.settings.chunkCountAlongAxis[0];
                     var chunk = self.settings.chunks[chunkIndex];
 
@@ -168,8 +166,8 @@ pub const Renderer = struct {
                 var x: usize = 0;
                 while (x < self.settings.size[0]) : (x += 1) {
                     var i = y * self.settings.cmdSettings.width + x;
-                    var chunkCol = @divTrunc(@intCast(u32, x), self.settings.cmdSettings.chunkSize);
-                    var chunkRow = @divTrunc(@intCast(u32, y), self.settings.cmdSettings.chunkSize);
+                    var chunkCol = @divTrunc(@as(u32, @intCast(x)), self.settings.cmdSettings.chunkSize);
+                    var chunkRow = @divTrunc(@as(u32, @intCast(y)), self.settings.cmdSettings.chunkSize);
                     var chunkIndex = chunkCol + chunkRow * self.settings.chunkCountAlongAxis[0];
                     var chunk = self.settings.chunks[chunkIndex];
 
@@ -177,11 +175,11 @@ pub const Renderer = struct {
                     var isBorderingPixel = x == chunkCol * self.settings.cmdSettings.chunkSize or x == (chunkCol + 1) * (self.settings.cmdSettings.chunkSize) - 1;
                     isBorderingPixel = isBorderingPixel or y == chunkRow * self.settings.cmdSettings.chunkSize or y == (chunkRow + 1) * self.settings.cmdSettings.chunkSize - 1;
 
-                    var borderColor = Vector(3, f32){ 1.0, 0.0, 0.0 };
+                    var borderColor = @Vector(3, f32){ 1.0, 0.0, 0.0 };
                     var color = borderColor;
                     if (!isChunkRendering or !isBorderingPixel or self.settings.cmdSettings.sppPerPass < 16) {
                         var tonemappedColor = tonemapReinhardLuminance(self.pixels[chunk.currentBufferIndex][i], maxLuminance);
-                        tonemappedColor = @min(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });
+                        tonemappedColor = @min(tonemappedColor, @Vector(3, f32){ 1.0, 1.0, 1.0 });
 
                         if (self.settings.cmdSettings.gamma == 2.0) {
                             color = @sqrt(tonemappedColor);
@@ -195,9 +193,9 @@ pub const Renderer = struct {
 
                     // Invert the y... Different coordinate systems like always
                     var pixels = pixel_data.scanline(self.settings.size[1] - y - 1, u8);
-                    pixels[x * 4 + 0] = @truncate(u8, @floatToInt(u32, color[0] * 255));
-                    pixels[x * 4 + 1] = @truncate(u8, @floatToInt(u32, color[1] * 255));
-                    pixels[x * 4 + 2] = @truncate(u8, @floatToInt(u32, color[2] * 255));
+                    pixels[x * 4 + 0] = @as(u8, @truncate(@as(u32, @intFromFloat(color[0] * 255))));
+                    pixels[x * 4 + 1] = @as(u8, @truncate(@as(u32, @intFromFloat(color[1] * 255))));
+                    pixels[x * 4 + 2] = @as(u8, @truncate(@as(u32, @intFromFloat(color[2] * 255))));
                     pixels[x * 4 + 3] = 0;
                 }
             }
@@ -206,7 +204,7 @@ pub const Renderer = struct {
             sdlRenderer.present();
 
             const frametime_ms: f32 = 16.666;
-            std.time.sleep(@floatToInt(u64, frametime_ms * 1000000.0));
+            std.time.sleep(@as(u64, @intFromFloat(frametime_ms * 1000000.0)));
         }
     }
 
@@ -227,7 +225,7 @@ pub const Renderer = struct {
                 var color = self.pixels[0][y * self.settings.size[0] + x];
 
                 var tonemappedColor = tonemapReinhardLuminance(color, std.math.inf(f32));
-                tonemappedColor = @min(tonemappedColor, Vector(3, f32){ 1.0, 1.0, 1.0 });
+                tonemappedColor = @min(tonemappedColor, @Vector(3, f32){ 1.0, 1.0, 1.0 });
 
                 if (self.settings.cmdSettings.gamma == 2.0) {
                     color = @sqrt(tonemappedColor);
@@ -238,9 +236,9 @@ pub const Renderer = struct {
                     color[2] = pow(f32, tonemappedColor[2], gammaExponent);
                 }
 
-                var r = @truncate(u8, @floatToInt(u32, color[0] * 255));
-                var g = @truncate(u8, @floatToInt(u32, color[1] * 255));
-                var b = @truncate(u8, @floatToInt(u32, color[2] * 255));
+                var r = @as(u8, @truncate(@as(u32, @intFromFloat(color[0] * 255))));
+                var g = @as(u8, @truncate(@as(u32, @intFromFloat(color[1] * 255))));
+                var b = @as(u8, @truncate(@as(u32, @intFromFloat(color[2] * 255))));
 
                 try writer.print("{} {} {}\n", .{ r, g, b });
             }

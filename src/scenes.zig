@@ -1,7 +1,6 @@
 const std = @import("std");
 
 const PI = std.math.pi;
-const Vector = std.meta.Vector;
 const ArrayList = std.ArrayList;
 
 const Material = @import("materials.zig").Material;
@@ -49,7 +48,7 @@ pub const Scene = struct {
     }
 
     pub fn buildBlases(self: *Scene) !void {
-        const blasCount = self.models.items.len + (@boolToInt(self.primitives.items.len > 0) * 1);
+        const blasCount = self.models.items.len + (@intFromBool(self.primitives.items.len > 0) * 1);
         self.blases = try self.allocator.alloc(*BVH.BVHNode, blasCount);
         var i: usize = 0;
         for (self.models.items) |*model| {
@@ -74,12 +73,12 @@ pub const Scene = struct {
 pub fn devScene(allocator: std.mem.Allocator) anyerror!Scene {
     var scene = Scene.init(allocator, "devScene");
 
-    const cameraPos = Vector(4, f32){ -1.87689530e+00, 0.54253983e+00, -4.15354937e-01, 0.0e+00 };
-    const lookTarget = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
+    const cameraPos = @Vector(4, f32){ -1.87689530e+00, 0.54253983e+00, -4.15354937e-01, 0.0e+00 };
+    const lookTarget = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
     scene.camera = Camera.init(cameraPos, lookTarget, PI / 2.0, 16.0 / 9.0, 0.0, 10.0);
 
     var defaultMat = try scene.allocator.create(DielectricMat);
-    defaultMat.* = DielectricMat.init(Vector(3, f32){ 0.85, 0.5, 0.1 }, 1.5);
+    defaultMat.* = DielectricMat.init(@Vector(3, f32){ 0.85, 0.5, 0.1 }, 1.5);
     try scene.materials.append(&defaultMat.*.material);
 
     //try scene.models.append(try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/GearboxAssy/glTF/GearboxAssy.gltf"));
@@ -100,14 +99,14 @@ pub fn devScene(allocator: std.mem.Allocator) anyerror!Scene {
     const bMat = try allocator.create(EmissiveMat);
     const cMat = try allocator.create(EmissiveMat);
     const dMat = try allocator.create(LambertianMat);
-    aMat.* = EmissiveMat.init(Vector(3, f32){ 1.0, 1.0, 1.0 });
-    spheres[0] = Sphere.init(&aMat.material, Vector(4, f32){ 0.0, 5.0, 0.0, 0.0 }, 1.0);
-    bMat.* = EmissiveMat.init(Vector(3, f32){ 0.7 * 2.0, 0.5 * 2.0, 0.1 * 2.0 });
-    spheres[2] = Sphere.init(&bMat.material, Vector(4, f32){ 4.0, 1.0, 0.0, 0.0 }, 1.0);
-    cMat.* = EmissiveMat.init(Vector(3, f32){ 5.0, 0.0, 0.0 });
-    spheres[1] = Sphere.init(&cMat.material, Vector(4, f32){ -4.0, 1.0, 0.0, 0.0 }, 1.0);
-    dMat.* = LambertianMat.init(Vector(3, f32){ 0.35, 0.6, 0.2 });
-    spheres[3] = Sphere.init(&dMat.material, Vector(4, f32){ 0.0, -2005.0, 0.0, 0.0 }, 2000);
+    aMat.* = EmissiveMat.init(@Vector(3, f32){ 1.0, 1.0, 1.0 });
+    spheres[0] = Sphere.init(&aMat.material, @Vector(4, f32){ 0.0, 5.0, 0.0, 0.0 }, 1.0);
+    bMat.* = EmissiveMat.init(@Vector(3, f32){ 0.7 * 2.0, 0.5 * 2.0, 0.1 * 2.0 });
+    spheres[2] = Sphere.init(&bMat.material, @Vector(4, f32){ 4.0, 1.0, 0.0, 0.0 }, 1.0);
+    cMat.* = EmissiveMat.init(@Vector(3, f32){ 5.0, 0.0, 0.0 });
+    spheres[1] = Sphere.init(&cMat.material, @Vector(4, f32){ -4.0, 1.0, 0.0, 0.0 }, 1.0);
+    dMat.* = LambertianMat.init(@Vector(3, f32){ 0.35, 0.6, 0.2 });
+    spheres[3] = Sphere.init(&dMat.material, @Vector(4, f32){ 0.0, -2005.0, 0.0, 0.0 }, 2000);
 
     try scene.primitives.append(&spheres[0].hittable);
     try scene.primitives.append(&spheres[1].hittable);

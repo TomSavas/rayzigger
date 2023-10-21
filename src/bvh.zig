@@ -4,7 +4,6 @@ const printErr = std.io.getStdErr().writer().print;
 
 const Random = std.rand.Random;
 const DefaultRandom = std.rand.DefaultPrng;
-const Vector = std.meta.Vector;
 
 const Ray = @import("ray.zig").Ray;
 const Hit = @import("ray.zig").Hit;
@@ -110,7 +109,7 @@ pub fn buildTLAS(allocator: std.mem.Allocator, bvhs: []*BVHNode) anyerror!BVHNod
     return node;
 }
 
-fn triangleComparator(axisMask: Vector(4, f32), a: Triangle, b: Triangle) bool {
+fn triangleComparator(axisMask: @Vector(4, f32), a: Triangle, b: Triangle) bool {
     var minA: f32 = std.math.inf(f32);
     var minB: f32 = std.math.inf(f32);
 
@@ -126,7 +125,7 @@ fn triangleComparator(axisMask: Vector(4, f32), a: Triangle, b: Triangle) bool {
     return minA < minB;
 }
 
-fn hittableComparator(axisMask: Vector(4, f32), a: *Hittable, b: *Hittable) bool {
+fn hittableComparator(axisMask: @Vector(4, f32), a: *Hittable, b: *Hittable) bool {
     var minA: f32 = std.math.inf(f32);
     var minB: f32 = std.math.inf(f32);
 
@@ -166,13 +165,14 @@ pub fn buildSimpleBVH(rng: Random, allocator: std.mem.Allocator, hittables: []*H
     }
 
     var randomF = rng.float(f32);
-    var sortAxis = Vector(4, f32){ 0.0, 0.0, 1.0, 0.0 };
+    var sortAxis = @Vector(4, f32){ 0.0, 0.0, 1.0, 0.0 };
     if (randomF <= 0.33) {
-        sortAxis = Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 };
+        sortAxis = @Vector(4, f32){ 1.0, 0.0, 0.0, 0.0 };
     } else if (randomF <= 0.66) {
-        sortAxis = Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 };
+        sortAxis = @Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 };
     }
-    std.sort.sort(*Hittable, hittables, sortAxis, hittableComparator);
+    //std.sort.sort(*Hittable, hittables, sortAxis, hittableComparator);
+    std.mem.sort(*Hittable, hittables, sortAxis, hittableComparator);
 
     var node = BVHNode.init(allocator, .{});
     node.children = try allocator.alloc(BVHNode, 2);

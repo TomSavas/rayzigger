@@ -1,5 +1,4 @@
 const std = @import("std");
-const Vector = std.meta.Vector;
 const print = std.io.getStdOut().writer().print;
 const Thread = std.Thread;
 
@@ -33,13 +32,13 @@ pub const Settings = struct {
     cmdSettings: CmdSettings,
 
     aspectRatio: f32,
-    size: Vector(2, u32),
+    size: @Vector(2, u32),
     pixelCount: u32,
 
     chunkAllocator: std.mem.Allocator,
     chunks: []Chunk,
 
-    chunkCountAlongAxis: Vector(2, u32),
+    chunkCountAlongAxis: @Vector(2, u32),
 
     pub fn init(allocator: std.mem.Allocator) !Settings {
         var settings = Settings{
@@ -59,15 +58,15 @@ pub const Settings = struct {
         }
 
         if (settings.cmdSettings.threads == null) {
-            settings.cmdSettings.threads = @intCast(u32, Thread.getCpuCount() catch 1);
+            settings.cmdSettings.threads = @intCast(Thread.getCpuCount() catch 1);
         }
 
-        const chunkSize = @splat(2, settings.cmdSettings.chunkSize);
+        const chunkSize: @Vector(2, u32) = @splat(settings.cmdSettings.chunkSize);
 
-        settings.size = Vector(2, u32){ settings.cmdSettings.width, @floatToInt(u32, @intToFloat(f32, settings.cmdSettings.width) / settings.aspectRatio) };
+        settings.size = @Vector(2, u32){ settings.cmdSettings.width, @as(u32, @intFromFloat(@as(f32, @floatFromInt(settings.cmdSettings.width)) / settings.aspectRatio)) };
         settings.pixelCount = settings.size[0] * settings.size[1];
 
-        settings.chunkCountAlongAxis = (settings.size + chunkSize - Vector(2, u32){ 1, 1 }) / chunkSize;
+        settings.chunkCountAlongAxis = (settings.size + chunkSize - @Vector(2, u32){ 1, 1 }) / chunkSize;
         const chunkCount = settings.chunkCountAlongAxis[0] * settings.chunkCountAlongAxis[1];
         settings.chunks = try settings.chunkAllocator.alloc(Chunk, chunkCount);
 
@@ -76,7 +75,7 @@ pub const Settings = struct {
             const chunkCol = @mod(chunkIndex, settings.chunkCountAlongAxis[0]);
             const chunkRow = @divTrunc(chunkIndex, settings.chunkCountAlongAxis[0]);
 
-            const chunkStartIndices = Vector(2, u32){ chunkCol * chunkSize[0], chunkRow * chunkSize[1] };
+            const chunkStartIndices = @Vector(2, u32){ chunkCol * chunkSize[0], chunkRow * chunkSize[1] };
             var clampedChunkSize = chunkSize;
             if (chunkStartIndices[0] + chunkSize[0] > settings.size[0]) {
                 clampedChunkSize[0] = settings.size[0] - chunkStartIndices[0];

@@ -1,5 +1,4 @@
 const std = @import("std");
-const Vector = std.meta.Vector;
 
 const zm = @import("zmath");
 
@@ -8,10 +7,10 @@ const Hit = @import("ray.zig").Hit;
 const Material = @import("materials.zig").Material;
 
 pub const AABB = struct {
-    min: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
-    max: Vector(4, f32) = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
+    min: @Vector(4, f32) = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
+    max: @Vector(4, f32) = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 },
 
-    pub fn fromPoints(a: Vector(4, f32), b: Vector(4, f32)) AABB {
+    pub fn fromPoints(a: @Vector(4, f32), b: @Vector(4, f32)) AABB {
         return AABB{
             .min = .{
                 @min(a[0], b[0]),
@@ -45,7 +44,7 @@ pub const AABB = struct {
         };
     }
 
-    pub fn extend(self: AABB, point: Vector(4, f32)) AABB {
+    pub fn extend(self: AABB, point: @Vector(4, f32)) AABB {
         return AABB{
             .min = .{
                 @min(self.min[0], point[0]),
@@ -125,11 +124,11 @@ pub const Hittable = struct {
 };
 
 pub const Sphere = struct {
-    center: Vector(4, f32),
+    center: @Vector(4, f32),
     radius: f32,
     hittable: Hittable,
 
-    pub fn init(mat: *const Material, center: Vector(4, f32), radius: f32) Sphere {
+    pub fn init(mat: *const Material, center: @Vector(4, f32), radius: f32) Sphere {
         return Sphere{ .center = center, .radius = radius, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb, .material = mat } };
     }
 
@@ -168,22 +167,22 @@ pub const Sphere = struct {
     pub fn aabb(hittable: *const Hittable) AABB {
         const self = @fieldParentPtr(Sphere, "hittable", hittable);
 
-        var radiusVec = Vector(4, f32){ self.radius, self.radius, self.radius, 0.0 };
+        var radiusVec = @Vector(4, f32){ self.radius, self.radius, self.radius, 0.0 };
         return AABB{ .min = self.center - radiusVec, .max = self.center + radiusVec };
     }
 };
 
 pub const Triangle = struct {
-    points: [3]Vector(4, f32),
-    uvs: [3]Vector(2, f32),
+    points: [3]@Vector(4, f32),
+    uvs: [3]@Vector(2, f32),
 
-    normal: Vector(4, f32),
+    normal: @Vector(4, f32),
     // As in "normal * p = d" plane equation
     d: f32,
 
     hittable: Hittable,
 
-    pub fn init(mat: *const Material, points: [3]Vector(4, f32), uvs: [3]Vector(2, f32)) Triangle {
+    pub fn init(mat: *const Material, points: [3]@Vector(4, f32), uvs: [3]@Vector(2, f32)) Triangle {
         var edge0 = points[1] - points[0];
         var edge1 = points[2] - points[0];
         var normal = zm.normalize3(zm.cross3(edge0, edge1));
@@ -192,7 +191,7 @@ pub const Triangle = struct {
         return Triangle{ .points = points, .uvs = uvs, .normal = normal, .d = d, .hittable = Hittable{ .testHitFn = testHit, .aabbFn = aabb, .material = mat } };
     }
 
-    fn barycentric(self: *const Triangle, p: *const Vector(4, f32)) Vector(4, f32) {
+    fn barycentric(self: *const Triangle, p: *const @Vector(4, f32)) @Vector(4, f32) {
         var areaABC = zm.dot3(self.normal, zm.cross3((self.points[1] - self.points[0]), (self.points[2] - self.points[0])))[0];
         var areaPBC = zm.dot3(self.normal, zm.cross3((self.points[1] - p.*), (self.points[2] - p.*)))[0];
         var areaPCA = zm.dot3(self.normal, zm.cross3((self.points[2] - p.*), (self.points[0] - p.*)))[0];
@@ -200,10 +199,10 @@ pub const Triangle = struct {
         var x = areaPBC / areaABC;
         var y = areaPCA / areaABC;
         var z = 1.0 - x - y;
-        return Vector(4, f32){ x, y, z, 0.0 };
+        return @Vector(4, f32){ x, y, z, 0.0 };
     }
 
-    pub fn centroid(self: *const Triangle) Vector(4, f32) {
+    pub fn centroid(self: *const Triangle) @Vector(4, f32) {
         const a = self.hittable.aabb();
         const len = a.max - a.min;
 
@@ -233,7 +232,7 @@ pub const Triangle = struct {
             hitFrontFace = false;
         }
 
-        var uv = self.uvs[0] * @splat(2, bary[0]) + self.uvs[1] * @splat(2, bary[1]) + self.uvs[2] * @splat(2, bary[2]);
+        var uv = self.uvs[0] * @as(@Vector(2, f32), @splat(bary[0])) + self.uvs[1] * @as(@Vector(2, f32), @splat(bary[1])) + self.uvs[2] * @as(@Vector(2, f32), @splat(bary[2]));
 
         return Hit{ .location = r.at(t), .normal = normal, .rayFactor = t, .hitFrontFace = hitFrontFace, .uv = uv };
     }

@@ -2,7 +2,6 @@ const stbi = @cImport({
     @cInclude("stb_image.h");
 });
 const std = @import("std");
-const Vector = std.meta.Vector;
 
 pub const Texture = struct {
     width: u32,
@@ -30,18 +29,18 @@ pub const Texture = struct {
             return error.NoMem;
         }
 
-        const size = @intCast(u32, width * height * channel_count);
+        const size: u32 = @intCast(width * height * channel_count);
         return Texture{
-            .width = @intCast(u32, width),
-            .height = @intCast(u32, height),
-            .bytesPerPixel = @intCast(u32, channel_count),
+            .width = @intCast(width),
+            .height = @intCast(height),
+            .bytesPerPixel = @intCast(channel_count),
 
             .bytes = imageBytes[0..size],
         };
     }
 
     pub fn create(compressedBytes: []const u8) !Texture {
-        if (stbi.stbi_is_16_bit_from_memory(compressedBytes.ptr, @intCast(c_int, compressedBytes.len)) != 0) {
+        if (stbi.stbi_is_16_bit_from_memory(compressedBytes.ptr, @as(c_int, @intCast(compressedBytes.len))) != 0) {
             return error.InvalidFormat;
         }
         stbi.stbi_set_flip_vertically_on_load(1);
@@ -49,7 +48,7 @@ pub const Texture = struct {
         var width: c_int = undefined;
         var height: c_int = undefined;
         var channel_count: c_int = undefined;
-        const imageBytes = stbi.stbi_load_from_memory(compressedBytes.ptr, @intCast(c_int, compressedBytes.len), &width, &height, &channel_count, 0);
+        const imageBytes = stbi.stbi_load_from_memory(compressedBytes.ptr, @as(c_int, @intCast(compressedBytes.len)), &width, &height, &channel_count, 0);
 
         if (width <= 0 or height <= 0) {
             return error.NoPixels;
@@ -58,11 +57,11 @@ pub const Texture = struct {
             return error.NoMem;
         }
 
-        const size = @intCast(u32, width * height * channel_count);
+        const size: u32 = @intCast(width * height * channel_count);
         return Texture{
-            .width = @intCast(u32, width),
-            .height = @intCast(u32, height),
-            .bytesPerPixel = @intCast(u32, channel_count),
+            .width = @intCast(width),
+            .height = @intCast(height),
+            .bytesPerPixel = @intCast(channel_count),
 
             .bytes = imageBytes[0..size],
         };
@@ -72,15 +71,15 @@ pub const Texture = struct {
         return u * self.bytesPerPixel + v * self.width * self.bytesPerPixel;
     }
 
-    pub fn sample(self: Texture, uv: Vector(2, f32)) Vector(3, f32) {
-        var u = @floatToInt(u32, @mod(uv[0], 1.0) * @intToFloat(f64, self.width));
-        var v = @floatToInt(u32, @mod(uv[1], 1.0) * @intToFloat(f64, self.height));
+    pub fn sample(self: Texture, uv: @Vector(2, f32)) @Vector(3, f32) {
+        var u = @as(u32, @intFromFloat(@mod(uv[0], 1.0) * @as(f64, @floatFromInt(self.width))));
+        var v = @as(u32, @intFromFloat(@mod(uv[1], 1.0) * @as(f64, @floatFromInt(self.height))));
 
         var idx = self.index(u, v);
         return .{
-            @intToFloat(f32, self.bytes[idx + 0]) / 255.0,
-            @intToFloat(f32, self.bytes[idx + 1]) / 255.0,
-            @intToFloat(f32, self.bytes[idx + 2]) / 255.0,
+            @as(f32, @floatFromInt(self.bytes[idx + 0])) / 255.0,
+            @as(f32, @floatFromInt(self.bytes[idx + 1])) / 255.0,
+            @as(f32, @floatFromInt(self.bytes[idx + 2])) / 255.0,
         };
     }
 };

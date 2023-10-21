@@ -23,7 +23,10 @@ pub const BenchmarkResult = struct {
             // TODO: remove C dependency once Zig has it's own time formatter
             var timeBuf: [32]u8 = undefined;
             const localTime = cTime.localtime(&std.time.timestamp());
-            const timeLength = cTime.strftime(@ptrCast([*c]u8, @alignCast(@alignOf(u8), &timeBuf)), 32, "%Y_%m_%d-%H:%M:%S", localTime);
+            const a: [*c]u8 = @ptrCast((@alignCast(&timeBuf)));
+            //const a: [*c]u8 = @ptrCast(@as(@alignOf(u8), @alignCast(timeBuf)));
+            const timeLength = cTime.strftime(a, 32, "%Y_%m_%d-%H:%M:%S", localTime);
+            //const timeLength = cTime.strftime(@as([*c]u8, @ptrCast(@as(@alignOf(u8), @alignCast(&timeBuf)))), 32, "%Y_%m_%d-%H:%M:%S", localTime);
             break :formattedTime try std.fmt.allocPrint(allocator, "{s}", .{timeBuf[0..timeLength]});
         };
         const benchPath = try std.fs.path.join(allocator, &.{ "./benchmarks", unitTime });
@@ -77,10 +80,10 @@ pub fn benchmark(allocator: std.mem.Allocator, scene: *Scene, renderer: *Rendere
     try renderer.headlessRender(scene);
     const renderTime = timer.lap();
 
-    try result.times.put("blas", @intToFloat(f64, blasBuildTime) / 1000000.0);
-    try result.times.put("tlas", @intToFloat(f64, tlasBuildTime) / 1000000.0);
-    try result.times.put("as", @intToFloat(f64, blasBuildTime + tlasBuildTime) / 1000000.0);
-    try result.times.put("render", @intToFloat(f64, renderTime) / 1000000.0);
+    try result.times.put("blas", @as(f32, @floatFromInt(blasBuildTime)) / 1000000.0);
+    try result.times.put("tlas", @as(f32, @floatFromInt(tlasBuildTime)) / 1000000.0);
+    try result.times.put("as", @as(f32, @floatFromInt(blasBuildTime + tlasBuildTime)) / 1000000.0);
+    try result.times.put("render", @as(f32, @floatFromInt(renderTime)) / 1000000.0);
 
     var timesIt = result.times.iterator();
     while (timesIt.next()) |entry| {

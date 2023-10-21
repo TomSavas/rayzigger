@@ -27,20 +27,27 @@ pub fn build(b: *std.build.Builder) void {
         .optimize = optimize,
     });
 
-    exe.addCSourceFile("libs/stb_image/stb_image_impl.c", &[_][]const u8{"-std=c99"});
-    exe.addIncludePath("libs/stb_image");
+    exe.addCSourceFile(std.Build.LibExeObjStep.CSourceFile{
+        .file = std.Build.FileSource.relative("libs/stb_image/stb_image_impl.c"),
+        .flags = &[_][]const u8{"-std=c99"},
+    });
+    exe.addIncludePath(std.Build.FileSource.relative("libs/stb_image"));
 
     sdk.link(exe, .dynamic);
 
     const exe_options = b.addOptions();
     exe.addOptions(options_pkg_name, exe_options);
 
-    const zmesh_pkg = zmesh.Package.build(b, target, optimize, .{});
-    exe.addModule("zmesh", zmesh_pkg.zmesh);
+    const zmesh_pkg = zmesh.package(b, target, optimize, .{});
+    //exe.addModule("zmesh", zmesh_pkg.zmesh);
     zmesh_pkg.link(exe);
 
-    const zmath_pkg = zmath.Package.build(b, .{});
-    exe.addModule("zmath", zmath_pkg.zmath);
+    const zmath_pkg = zmath.package(b, target, optimize, .{
+        .options = .{ .enable_cross_platform_determinism = true },
+    });
+    //exe.addModule("zmath", zmath_pkg.zmath);
+    zmath_pkg.link(exe);
+
     exe.addModule("sdl2", sdk.getWrapperModule());
 
     const zigargs_mod = b.createModule(.{
@@ -49,9 +56,11 @@ pub fn build(b: *std.build.Builder) void {
     });
     exe.addModule("args", zigargs_mod);
 
-    exe.install();
+    b.installArtifact(exe);
+    //exe.installArtifact();
 
-    const run_cmd = exe.run();
+    //const run_cmd = exe.run();
+    const run_cmd = b.addRunArtifact(exe);
     run_cmd.step.dependOn(b.getInstallStep());
     if (b.args) |args| {
         run_cmd.addArgs(args);

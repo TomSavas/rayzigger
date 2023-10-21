@@ -2,7 +2,6 @@ const std = @import("std");
 const zm = @import("zmath");
 const zmesh = @import("zmesh");
 const print = std.debug.print;
-const Vector = std.meta.Vector;
 const DefaultRandom = std.rand.DefaultPrng;
 const ArrayList = std.ArrayList;
 
@@ -78,7 +77,7 @@ pub const Model = struct {
 
                         var texPath = std.fs.path.join(allocator, &.{ filepathRoot, uriSlice }) catch break :matBlk;
                         defer allocator.free(texPath);
-                        var terminatedTexPath = std.cstr.addNullByte(allocator, texPath) catch break :matBlk;
+                        var terminatedTexPath = allocator.dupeZ(u8, texPath) catch break :matBlk; // adds a null byte at the end, such a bad naming...
                         defer allocator.free(terminatedTexPath);
 
                         var mat = allocator.create(LambertianTexMat) catch break :matBlk;
@@ -107,21 +106,21 @@ pub const Model = struct {
                 _ = indicesAccessor.unpackFloats(indices);
                 var i: u32 = 0;
                 while (i < indices.len) : (i += 3) {
-                    var trianglePoints = [3]Vector(4, f32){
-                        Vector(4, f32){ positions[@floatToInt(u32, indices[i + 0]) * 3 + 0], positions[@floatToInt(u32, indices[i + 0]) * 3 + 1], positions[@floatToInt(u32, indices[i + 0]) * 3 + 2], 1 },
-                        Vector(4, f32){ positions[@floatToInt(u32, indices[i + 1]) * 3 + 0], positions[@floatToInt(u32, indices[i + 1]) * 3 + 1], positions[@floatToInt(u32, indices[i + 1]) * 3 + 2], 1 },
-                        Vector(4, f32){ positions[@floatToInt(u32, indices[i + 2]) * 3 + 0], positions[@floatToInt(u32, indices[i + 2]) * 3 + 1], positions[@floatToInt(u32, indices[i + 2]) * 3 + 2], 1 },
+                    var trianglePoints = [3]@Vector(4, f32){
+                        @Vector(4, f32){ positions[@as(u32, @intFromFloat(indices[i + 0])) * 3 + 0], positions[@as(u32, @intFromFloat(indices[i + 0])) * 3 + 1], positions[@as(u32, @intFromFloat(indices[i + 0])) * 3 + 2], 1 },
+                        @Vector(4, f32){ positions[@as(u32, @intFromFloat(indices[i + 1])) * 3 + 0], positions[@as(u32, @intFromFloat(indices[i + 1])) * 3 + 1], positions[@as(u32, @intFromFloat(indices[i + 1])) * 3 + 2], 1 },
+                        @Vector(4, f32){ positions[@as(u32, @intFromFloat(indices[i + 2])) * 3 + 0], positions[@as(u32, @intFromFloat(indices[i + 2])) * 3 + 1], positions[@as(u32, @intFromFloat(indices[i + 2])) * 3 + 2], 1 },
                     };
                     trianglePoints[0] = zm.mul(trianglePoints[0], transform);
                     trianglePoints[1] = zm.mul(trianglePoints[1], transform);
                     trianglePoints[2] = zm.mul(trianglePoints[2], transform);
 
-                    var triangleUvs = [3]Vector(2, f32){ .{ 0.0, 0.0 }, .{ 0.0, 0.0 }, .{ 0.0, 0.0 } };
+                    var triangleUvs = [3]@Vector(2, f32){ .{ 0.0, 0.0 }, .{ 0.0, 0.0 }, .{ 0.0, 0.0 } };
                     if (maybeUvs) |uvs| {
                         triangleUvs = .{
-                            Vector(2, f32){ uvs[@floatToInt(u32, indices[i + 0]) * 2 + 0], uvs[@floatToInt(u32, indices[i + 0]) * 2 + 1] },
-                            Vector(2, f32){ uvs[@floatToInt(u32, indices[i + 1]) * 2 + 0], uvs[@floatToInt(u32, indices[i + 1]) * 2 + 1] },
-                            Vector(2, f32){ uvs[@floatToInt(u32, indices[i + 2]) * 2 + 0], uvs[@floatToInt(u32, indices[i + 2]) * 2 + 1] },
+                            @Vector(2, f32){ uvs[@as(u32, @intFromFloat(indices[i + 0])) * 2 + 0], uvs[@as(u32, @intFromFloat(indices[i + 0])) * 2 + 1] },
+                            @Vector(2, f32){ uvs[@as(u32, @intFromFloat(indices[i + 1])) * 2 + 0], uvs[@as(u32, @intFromFloat(indices[i + 1])) * 2 + 1] },
+                            @Vector(2, f32){ uvs[@as(u32, @intFromFloat(indices[i + 2])) * 2 + 0], uvs[@as(u32, @intFromFloat(indices[i + 2])) * 2 + 1] },
                         };
                     }
 

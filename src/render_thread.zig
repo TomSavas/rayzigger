@@ -5,7 +5,6 @@ const pow = std.math.pow;
 const PI = std.math.pi;
 const print = std.debug.print;
 const printErr = std.io.getStdErr().writer().print;
-const Vector = std.meta.Vector;
 const Random = std.rand.Random;
 const DefaultRandom = std.rand.DefaultPrng;
 const ArrayList = std.ArrayList;
@@ -45,7 +44,7 @@ const BVH = @import("bvh.zig").BVHNode;
 //
 //}
 //
-//fn atmosphere(r: Ray, sunPos: Vector(4, f32), samples: usize, rayleighColor: Vector(3, f32), mieColor: Vector(3, f32)) Vector(3, f32) {
+//fn atmosphere(r: Ray, sunPos: @Vector(4, f32), samples: usize, rayleighColor: @Vector(3, f32), mieColor: @Vector(3, f32)) @Vector(3, f32) {
 //    var samplePoint = 1;
 //    while (samples > 0) : (samples -= 1) {
 //
@@ -59,44 +58,44 @@ const BVH = @import("bvh.zig").BVHNode;
 //}
 
 // TODO: implement atmospheric scattering
-fn background(r: *const Ray) Vector(3, f32) {
+fn background(r: *const Ray) @Vector(3, f32) {
     var y = zm.normalize3(r.dir)[1];
     // -1; 1 -> 0; 1
     y = (y + 1.0) * 0.5;
 
     var percentage = 0.2 + y * 0.8;
 
-    //const white = Vector(3, f32){ 0.01, 0.01, 0.01 };
-    //const blue = Vector(3, f32){ 0.0, 0.0, 0.05 };
-    const white = Vector(3, f32){ 1.0, 1.0, 1.0 };
-    const blue = Vector(3, f32){ 0.2, 0.3, 1.0 };
+    //const white = @Vector(3, f32){ 0.01, 0.01, 0.01 };
+    //const blue = @Vector(3, f32){ 0.0, 0.0, 0.05 };
+    const white = @Vector(3, f32){ 1.0, 1.0, 1.0 };
+    const blue = @Vector(3, f32){ 0.2, 0.3, 1.0 };
 
     return zm.lerp(white, blue, percentage);
 }
 
 const TraceResult = struct {
-    color: Vector(3, f32),
-    location: Vector(4, f32),
+    color: @Vector(3, f32),
+    location: @Vector(4, f32),
 };
 
 fn traceRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) TraceResult {
     if (remainingBounces <= 0) {
-        return TraceResult{ .color = Vector(3, f32){ 0.0, 0.0, 0.0 }, .location = Vector(4, f32){ 100000000.0, 100000000.0, 100000000.0, 0.0 } };
+        return TraceResult{ .color = @Vector(3, f32){ 0.0, 0.0, 0.0 }, .location = @Vector(4, f32){ 100000000.0, 100000000.0, 100000000.0, 0.0 } };
     }
 
     var nearestHitDistance: f32 = std.math.inf(f32);
     var bvhHit = bvh.hittable.testHit(ray, 0.001, nearestHitDistance);
     if (bvhHit == null) {
-        return TraceResult{ .color = background(ray), .location = Vector(4, f32){ 200000000.0, 200000000.0, 200000000.0, 0.0 } };
+        return TraceResult{ .color = background(ray), .location = @Vector(4, f32){ 200000000.0, 200000000.0, 200000000.0, 0.0 } };
     }
 
     var scatteredRay = bvhHit.?.material.?.scatter(&bvhHit.?, ray, rng);
     return TraceResult{ .color = scatteredRay.emissiveness + scatteredRay.attenuation * traceSecondaryRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng), .location = bvhHit.?.location };
 }
 
-fn traceSecondaryRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) Vector(3, f32) {
+fn traceSecondaryRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) @Vector(3, f32) {
     if (remainingBounces <= 0) {
-        return Vector(3, f32){ 0.0, 0.0, 0.0 };
+        return @Vector(3, f32){ 0.0, 0.0, 0.0 };
     }
 
     var nearestHitDistance: f32 = std.math.inf(f32);
@@ -110,8 +109,8 @@ fn traceSecondaryRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rn
 }
 
 pub const Chunk = struct {
-    chunkTopRightPixelIndices: Vector(2, u32),
-    chunkSize: Vector(2, u32),
+    chunkTopRightPixelIndices: @Vector(2, u32),
+    chunkSize: @Vector(2, u32),
 
     cameraTransforms: [2]CameraTransform,
 
@@ -123,7 +122,7 @@ pub const Chunk = struct {
     isProcessingReadonly: bool,
     justInvalidated: bool,
 
-    pub fn init(topRightPixelIndices: Vector(2, u32), chunkSize: Vector(2, u32)) Chunk {
+    pub fn init(topRightPixelIndices: @Vector(2, u32), chunkSize: @Vector(2, u32)) Chunk {
         return Chunk{
             .chunkTopRightPixelIndices = topRightPixelIndices,
             .chunkSize = chunkSize,
@@ -155,8 +154,8 @@ pub const Chunk = struct {
             var xOffset: usize = 0;
             while (xOffset < self.chunkSize[0]) : (xOffset += 1) {
                 const x = self.chunkTopRightPixelIndices[0] + xOffset;
-                const u = @intToFloat(f32, x) / @intToFloat(f32, ctx.settings.size[0]);
-                const v = @intToFloat(f32, y) / @intToFloat(f32, ctx.settings.size[1]);
+                const u = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(ctx.settings.size[0]));
+                const v = @as(f32, @floatFromInt(y)) / @as(f32, @floatFromInt(ctx.settings.size[1]));
                 // TODO: this has a bug when reprojecting into another pixel. We might be using the wrong "old" camera transform
                 // and we might be sampling the wrong buffers...
                 const index = y * ctx.settings.size[0] + x;
@@ -174,11 +173,11 @@ pub const Chunk = struct {
                 const validOldTexCoords = oldUv[0] >= 0.0 and oldUv[0] <= 1.0 and oldUv[1] >= 0.0 and oldUv[1] <= 1.0;
 
                 if (validOldTexCoords and ctx.sampleCounts[previousBufferIndex][index] > 0) {
-                    const oldTexCoords = Vector(2, i32){
-                        @floatToInt(i32, oldUv[0] * @intToFloat(f32, ctx.settings.size[0])),
-                        @floatToInt(i32, oldUv[1] * @intToFloat(f32, ctx.settings.size[1])),
+                    const oldTexCoords = @Vector(2, i32){
+                        @as(i32, @intFromFloat(oldUv[0] * @as(f32, @floatFromInt(ctx.settings.size[0])))),
+                        @as(i32, @intFromFloat(oldUv[1] * @as(f32, @floatFromInt(ctx.settings.size[1])))),
                     };
-                    const oldIndex = @intCast(usize, oldTexCoords[1] * @intCast(i32, ctx.settings.size[0]) + oldTexCoords[0]);
+                    const oldIndex = @as(usize, @intCast(oldTexCoords[1] * @as(i32, @intCast(ctx.settings.size[0])) + oldTexCoords[0]));
 
                     const distDiffSq = @fabs(zm.lengthSq3(bvhHit.?.location - ctx.hitWorldLocations[previousBufferIndex][oldIndex])[0]);
                     if (oldIndex >= 0 and oldIndex < pixelCount and distDiffSq < 0.01) {
@@ -215,15 +214,15 @@ pub const Chunk = struct {
             var xOffset: usize = 0;
             while (xOffset < self.chunkSize[0]) : (xOffset += 1) {
                 const x = self.chunkTopRightPixelIndices[0] + xOffset;
-                const u = (@intToFloat(f32, x) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[0]);
+                const u = (@as(f32, @floatFromInt(x)) + ctx.rng.float(f32)) / @as(f32, @floatFromInt(ctx.settings.size[0]));
                 const index = y * ctx.settings.size[0] + x;
 
                 const previousSampleCount = ctx.sampleCounts[previousBufferIndex][index];
 
-                var sampleValue = TraceResult{ .color = Vector(3, f32){ 0.0, 0.0, 0.0 }, .location = Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 } };
+                var sampleValue = TraceResult{ .color = @Vector(3, f32){ 0.0, 0.0, 0.0 }, .location = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 } };
                 var sampleCount: u32 = previousSampleCount;
                 while (sampleCount < targetSampleCount) : (sampleCount += 1) {
-                    const v = (@intToFloat(f32, y) + ctx.rng.float(f32)) / @intToFloat(f32, ctx.settings.size[1]);
+                    const v = (@as(f32, @floatFromInt(y)) + ctx.rng.float(f32)) / @as(f32, @floatFromInt(ctx.settings.size[1]));
 
                     const ray = ctx.camera.generateRay(u, v, ctx.rng);
                     const traceResult = traceRay(&ray, &ctx.bvh, ctx.settings.cmdSettings.maxBounces, ctx.rng);
@@ -232,8 +231,12 @@ pub const Chunk = struct {
                 }
 
                 // Rolling average
-                ctx.pixels[self.currentBufferIndex][index] = (ctx.pixels[previousBufferIndex][index] * @splat(3, @intToFloat(f32, previousSampleCount)) + sampleValue.color) / @splat(3, @intToFloat(f32, sampleCount));
-                ctx.hitWorldLocations[self.currentBufferIndex][index] = (ctx.hitWorldLocations[previousBufferIndex][index] * @splat(4, @intToFloat(f32, previousSampleCount)) + sampleValue.location) / @splat(4, @intToFloat(f32, sampleCount));
+                const previousSampleCountSplat3: @Vector(3, f32) = @splat(@as(f32, @floatFromInt(previousSampleCount)));
+                const previousSampleCountSplat4: @Vector(4, f32) = @splat(@as(f32, @floatFromInt(previousSampleCount)));
+                const sampleCountSplat3: @Vector(3, f32) = @splat(@as(f32, @floatFromInt(sampleCount)));
+                const sampleCountSplat4: @Vector(4, f32) = @splat(@as(f32, @floatFromInt(sampleCount)));
+                ctx.pixels[self.currentBufferIndex][index] = (ctx.pixels[previousBufferIndex][index] * previousSampleCountSplat3 + sampleValue.color) / sampleCountSplat3;
+                ctx.hitWorldLocations[self.currentBufferIndex][index] = (ctx.hitWorldLocations[previousBufferIndex][index] * previousSampleCountSplat4 + sampleValue.location) / sampleCountSplat4;
                 ctx.sampleCounts[self.currentBufferIndex][index] = sampleCount;
 
                 if (invalidationSignal) {
@@ -254,8 +257,8 @@ pub const RenderThreadCtx = struct {
     rng: Random,
     camera: *Camera,
     bvh: BVH,
-    pixels: [][]Vector(3, f32),
-    hitWorldLocations: [][]Vector(4, f32),
+    pixels: [][]@Vector(3, f32),
+    hitWorldLocations: [][]@Vector(4, f32),
     sampleCounts: [][]u32,
 
     settings: *const Settings,
@@ -267,27 +270,27 @@ pub const RenderThreadCtx = struct {
 
 const SpiralChunkIterator = struct {
     chunks: []Chunk,
-    chunkCount: Vector(2, i32),
+    chunkCount: @Vector(2, i32),
 
-    currentChunkIndex: Vector(2, i32),
-    currentChunkOffset: Vector(2, i32) = Vector(2, i32){ 0, 0 },
+    currentChunkIndex: @Vector(2, i32),
+    currentChunkOffset: @Vector(2, i32) = @Vector(2, i32){ 0, 0 },
 
     step: i32 = 1,
-    edgeLengths: Vector(2, i32) = Vector(2, i32){ 0, 0 },
+    edgeLengths: @Vector(2, i32) = @Vector(2, i32){ 0, 0 },
     unboundedEdgeLength: i32 = 0,
 
-    pub fn init(chunks: []Chunk, chunkCount: Vector(2, u32)) SpiralChunkIterator {
-        var signedChunkCount = Vector(2, i32){ @intCast(i32, chunkCount[0]), @intCast(i32, chunkCount[1]) };
+    pub fn init(chunks: []Chunk, chunkCount: @Vector(2, u32)) SpiralChunkIterator {
+        var signedChunkCount = @Vector(2, i32){ @intCast(chunkCount[0]), @intCast(chunkCount[1]) };
         return .{
             .chunks = chunks,
             .chunkCount = signedChunkCount,
-            .currentChunkIndex = Vector(2, i32){ @intCast(i32, @divTrunc(chunkCount[0], 2)), @intCast(i32, @divTrunc(chunkCount[1], 2)) },
+            .currentChunkIndex = @Vector(2, i32){ @intCast(@divTrunc(chunkCount[0], 2)), @intCast(@divTrunc(chunkCount[1], 2)) },
         };
     }
 
     pub fn currentChunk(self: *SpiralChunkIterator) *Chunk {
         const gridIndex = self.currentChunkIndex + self.currentChunkOffset;
-        return &self.chunks[@intCast(u32, gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
+        return &self.chunks[@intCast(gridIndex[0] + gridIndex[1] * self.chunkCount[0])];
     }
 
     pub fn next(self: *SpiralChunkIterator) ?*Chunk {
@@ -304,7 +307,7 @@ const SpiralChunkIterator = struct {
         self.currentChunkOffset[1] -= self.step;
 
         self.currentChunkIndex += self.currentChunkOffset;
-        self.currentChunkOffset = Vector(2, i32){ 0, 0 };
+        self.currentChunkOffset = @Vector(2, i32){ 0, 0 };
         self.step *= -1;
         self.unboundedEdgeLength += 1;
 
@@ -312,7 +315,7 @@ const SpiralChunkIterator = struct {
             return null;
         }
 
-        var newEdgeLenghts = Vector(2, i32){
+        var newEdgeLenghts = @Vector(2, i32){
             @min(@max(self.unboundedEdgeLength, 0), self.chunkCount[0] - 1),
             @min(@max(self.unboundedEdgeLength, 0), self.chunkCount[1] - 1),
         };
@@ -390,7 +393,7 @@ pub const RenderThreads = struct {
     allocator: std.mem.Allocator,
     uninvalidatedThreadCount: std.atomic.Atomic(u32),
 
-    pub fn init(threadCount: u32, allocator: std.mem.Allocator, settings: *Settings, camera: *Camera, accumulatedPixels: [][]Vector(3, f32), hitWorldLocations: [][]Vector(4, f32), sampleCounts: [][]u32, bvh: BVH) anyerror!RenderThreads {
+    pub fn init(threadCount: u32, allocator: std.mem.Allocator, settings: *Settings, camera: *Camera, accumulatedPixels: [][]@Vector(3, f32), hitWorldLocations: [][]@Vector(4, f32), sampleCounts: [][]u32, bvh: BVH) anyerror!RenderThreads {
         var renderThreads = RenderThreads{
             .ctxs = try allocator.alloc(RenderThreadCtx, threadCount),
             .threads = try allocator.alloc(Thread, threadCount),
@@ -444,7 +447,7 @@ pub const RenderThreads = struct {
     }
 
     pub fn invalidate(self: *RenderThreads) void {
-        self.uninvalidatedThreadCount.store(@intCast(u32, self.threads.len), .Monotonic);
+        self.uninvalidatedThreadCount.store(@intCast(self.threads.len), .Monotonic);
         invalidationSignal = true;
     }
 };

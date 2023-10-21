@@ -4,9 +4,9 @@ pub fn getFuncsWithReturnType(comptime fileType: type, comptime parameterType: t
     comptime var i = 0;
 
     inline for (@typeInfo(fileType).Struct.decls) |field| {
-        if (!field.is_pub) {
-            continue;
-        }
+        //if (!field.is_pub) {
+        //    continue;
+        //}
 
         // Don't quite understand why this song and dance between
         // TypeOf and typeInfo is needed. Works until the compiler changes, happy for now!
