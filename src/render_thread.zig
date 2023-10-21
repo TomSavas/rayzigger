@@ -80,7 +80,8 @@ const TraceResult = struct {
 
 fn traceRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) TraceResult {
     if (remainingBounces <= 0) {
-        return TraceResult{ .color = @Vector(3, f32){ 0.0, 0.0, 0.0 }, .location = @Vector(4, f32){ 100000000.0, 100000000.0, 100000000.0, 0.0 } };
+        // Let in some ambient light
+        return TraceResult{ .color = @Vector(3, f32){ 0.2, 0.2, 0.2 }, .location = @Vector(4, f32){ 100000000.0, 100000000.0, 100000000.0, 0.0 } };
     }
 
     var nearestHitDistance: f32 = std.math.inf(f32);
@@ -90,12 +91,17 @@ fn traceRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random
     }
 
     var scatteredRay = bvhHit.?.material.?.scatter(&bvhHit.?, ray, rng);
-    return TraceResult{ .color = scatteredRay.emissiveness + scatteredRay.attenuation * traceSecondaryRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng), .location = bvhHit.?.location };
+    if (scatteredRay.attenuation == null) {
+        return TraceResult{ .color = scatteredRay.emissiveness.?, .location = bvhHit.?.location };
+    } else {
+        return TraceResult{ .color = scatteredRay.attenuation.? * traceSecondaryRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng), .location = bvhHit.?.location };
+    }
 }
 
 fn traceSecondaryRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rng: Random) @Vector(3, f32) {
     if (remainingBounces <= 0) {
-        return @Vector(3, f32){ 0.0, 0.0, 0.0 };
+        // Let in some ambient light
+        return @Vector(3, f32){ 0.2, 0.2, 0.2 };
     }
 
     var nearestHitDistance: f32 = std.math.inf(f32);
@@ -105,13 +111,19 @@ fn traceSecondaryRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rn
     }
 
     var scatteredRay = bvhHit.?.material.?.scatter(&bvhHit.?, ray, rng);
-    return scatteredRay.emissiveness + scatteredRay.attenuation * traceSecondaryRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng);
+    if (scatteredRay.attenuation == null) {
+        return scatteredRay.emissiveness.?;
+    } else {
+        return scatteredRay.attenuation.? * traceSecondaryRay(&scatteredRay.ray, bvh, remainingBounces - 1, rng);
+    }
 }
 
 pub const Chunk = struct {
     index: usize,
     chunkTopLeftPixelIndices: @Vector(2, u32),
     chunkSize: @Vector(2, u32),
+
+    sampleCoarseness: u32,
 
     cameraTransforms: [2]CameraTransform,
 
@@ -122,11 +134,12 @@ pub const Chunk = struct {
     sampleCount: ?u32,
     isProcessingReadonly: bool,
 
-    pub fn init(index: usize, topLeftPixelIndices: @Vector(2, u32), chunkSize: @Vector(2, u32)) Chunk {
+    pub fn init(index: usize, topLeftPixelIndices: @Vector(2, u32), chunkSize: @Vector(2, u32), lodLevels: u32) Chunk {
         return Chunk{
             .index = index,
             .chunkTopLeftPixelIndices = topLeftPixelIndices,
             .chunkSize = chunkSize,
+            .sampleCoarseness = std.math.pow(u32, 2, lodLevels),
             .cameraTransforms = .{ undefined, undefined },
             .currentBufferIndex = 0,
             .processingLock = Mutex{},
@@ -140,8 +153,8 @@ pub const Chunk = struct {
         return !(texCoords[0] < self.chunkTopLeftPixelIndices[0] or texCoords[1] < self.chunkTopLeftPixelIndices[1] or texCoords[0] > self.chunkTopLeftPixelIndices[0] + self.chunkSize[0] or texCoords[1] > self.chunkTopLeftPixelIndices[1] + self.chunkSize[1]);
     }
 
-    pub fn reprojectFromLastFrame(self: *Chunk, ctx: *RenderThreadCtx) bool {
-        var reprojectedAnyPixels = false;
+    pub fn reprojectFromLastFrame(self: *Chunk, ctx: *RenderThreadCtx) u32 {
+        var reprojectedPixels: u32 = 0;
 
         const previousBufferIndex = self.currentBufferIndex;
         self.currentBufferIndex = @mod(previousBufferIndex + 1, 2);
@@ -202,7 +215,7 @@ pub const Chunk = struct {
                                 ctx.hitWorldLocations[self.currentBufferIndex][index] = ctx.hitWorldLocations[bufferIndex][oldIndex];
                                 ctx.sampleCounts[self.currentBufferIndex][index] = ctx.sampleCounts[bufferIndex][oldIndex];
 
-                                reprojectedAnyPixels = true;
+                                reprojectedPixels += 1;
                                 break :topOffsetLoop;
                             }
                         }
@@ -211,14 +224,22 @@ pub const Chunk = struct {
             }
         }
 
-        return reprojectedAnyPixels;
+        return reprojectedPixels;
     }
 
     pub fn render(self: *Chunk, ctx: *RenderThreadCtx) void {
         self.isProcessingReadonly = true;
         defer self.isProcessingReadonly = false;
 
-        if (self.sampleCount == null and self.reprojectFromLastFrame(ctx)) {
+        if (self.sampleCount == null) {
+            const reprojectedPixelCount = self.reprojectFromLastFrame(ctx);
+            const chunkPixelCount = self.chunkSize[0] * self.chunkSize[1];
+            const chunkReprojectionPercentage = (reprojectedPixelCount * 100) / chunkPixelCount;
+
+            // Reprojected a lot, probably no need for lod'ing here
+            if (chunkReprojectionPercentage > 25) {
+                self.sampleCoarseness = 1;
+            }
             return;
         }
 
@@ -228,14 +249,14 @@ pub const Chunk = struct {
         const targetSampleCount = (self.sampleCount orelse 0) + ctx.settings.cmdSettings.sppPerPass;
 
         var yOffset: usize = 0;
-        topLoop: while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
+        topLoop: while (yOffset < self.chunkSize[1]) : (yOffset += self.sampleCoarseness) {
             const y = self.chunkTopLeftPixelIndices[1] + yOffset;
 
             var xOffset: usize = 0;
-            while (xOffset < self.chunkSize[0]) : (xOffset += 1) {
+            while (xOffset < self.chunkSize[0]) : (xOffset += self.sampleCoarseness) {
                 const x = self.chunkTopLeftPixelIndices[0] + xOffset;
                 const u = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(ctx.settings.size[0]));
-                const index = y * ctx.settings.size[0] + x;
+                var index = y * ctx.settings.size[0] + x;
 
                 const previousSampleCount = ctx.sampleCounts[previousBufferIndex][index];
 
@@ -255,9 +276,27 @@ pub const Chunk = struct {
                 const previousSampleCountSplat4: @Vector(4, f32) = @splat(@as(f32, @floatFromInt(previousSampleCount)));
                 const sampleCountSplat3: @Vector(3, f32) = @splat(@as(f32, @floatFromInt(sampleCount)));
                 const sampleCountSplat4: @Vector(4, f32) = @splat(@as(f32, @floatFromInt(sampleCount)));
-                ctx.pixels[self.currentBufferIndex][index] = (ctx.pixels[previousBufferIndex][index] * previousSampleCountSplat3 + sampleValue.color) / sampleCountSplat3;
-                ctx.hitWorldLocations[self.currentBufferIndex][index] = (ctx.hitWorldLocations[previousBufferIndex][index] * previousSampleCountSplat4 + sampleValue.location) / sampleCountSplat4;
-                ctx.sampleCounts[self.currentBufferIndex][index] = sampleCount;
+                const color = (ctx.pixels[previousBufferIndex][index] * previousSampleCountSplat3 + sampleValue.color) / sampleCountSplat3;
+                const hitLocation = (ctx.hitWorldLocations[previousBufferIndex][index] * previousSampleCountSplat4 + sampleValue.location) / sampleCountSplat4;
+
+                // Discard any coarse samples, they only cause ghosting
+                if (self.sampleCoarseness > 1) {
+                    sampleCount = 1;
+                }
+
+                const fineYTarget = @min(y + self.sampleCoarseness, self.chunkTopLeftPixelIndices[1] + self.chunkSize[1]);
+                const fineXTarget = @min(x + self.sampleCoarseness, self.chunkTopLeftPixelIndices[0] + self.chunkSize[0]);
+                var fineY: usize = y;
+                while (fineY < fineYTarget) : (fineY += 1) {
+                    var fineX: usize = x;
+                    while (fineX < fineXTarget) : (fineX += 1) {
+                        index = fineY * ctx.settings.size[0] + fineX;
+
+                        ctx.pixels[self.currentBufferIndex][index] = color;
+                        ctx.hitWorldLocations[self.currentBufferIndex][index] = hitLocation;
+                        ctx.sampleCounts[self.currentBufferIndex][index] = sampleCount;
+                    }
+                }
 
                 if (invalidationSignal) {
                     break :topLoop;
@@ -265,6 +304,7 @@ pub const Chunk = struct {
             }
         }
 
+        self.sampleCoarseness = @max(1, self.sampleCoarseness / 2);
         self.sampleCount = targetSampleCount;
         self.cameraTransforms[self.currentBufferIndex] = ctx.camera.transform;
     }
@@ -395,6 +435,7 @@ pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
         while (invalidationSignal) {
             for (ctx.chunks) |*chunk| {
                 chunk.sampleCount = null;
+                chunk.sampleCoarseness = std.math.pow(u32, 2, ctx.settings.cmdSettings.lodLevels);
             }
             std.time.sleep(@as(u64, 1000.0));
         }

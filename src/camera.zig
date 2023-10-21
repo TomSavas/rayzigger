@@ -73,7 +73,6 @@ pub const Camera = struct {
     focusDist: f32,
 
     transform: CameraTransform,
-    oldTransform: CameraTransform,
 
     prevMouseX: i32,
     prevMouseY: i32,
@@ -95,7 +94,6 @@ pub const Camera = struct {
                 .focusPlaneLowerLeft = undefined,
                 .rotation = zm.lookAtRh(pos, lookAt, @Vector(4, f32){ 0.0, 1.0, 0.0, 0.0 }),
             },
-            .oldTransform = undefined,
 
             .prevMouseX = 0,
             .prevMouseY = 0,
@@ -104,22 +102,6 @@ pub const Camera = struct {
         cam.transform.recalculateRotation(cam.viewportSize, cam.focusDist);
 
         return cam;
-    }
-
-    pub fn uvFromOldRay(self: *const Camera, r: Ray) @Vector(2, f32) {
-        var op = self.oldTransform.focusPlaneLowerLeft;
-        var on = zm.normalize3(zm.cross3(self.oldTransform.up, self.oldTransform.right));
-
-        var t = (zm.dot3(op, on)[0] - zm.dot3(r.origin, on)[0]) / zm.dot3(r.dir, on)[0];
-        var dir = r.dir * @as(@Vector(4, f32), @splat(t));
-
-        const uvMult = -self.oldTransform.focusPlaneLowerLeft + r.origin + dir;
-
-        // Simple algebra to invert generateDeterministicRay
-        const u = (uvMult[0] * self.oldTransform.up[1] - uvMult[1] * self.oldTransform.up[0]) / (self.oldTransform.right[0] * self.oldTransform.up[1] - self.oldTransform.right[1] * self.oldTransform.up[0]);
-        const v = (uvMult[1] - u * self.oldTransform.right[1]) / self.oldTransform.up[1];
-
-        return @Vector(2, f32){ u, v };
     }
 
     pub fn generateRay(self: *const Camera, u: f32, v: f32, rng: Random) Ray {
@@ -137,8 +119,6 @@ pub const Camera = struct {
     pub fn handleInputEvent(self: *Camera, inputEvent: SDL.Event) bool {
         var moveDir: ?@Vector(4, f32) = null;
         var mouseRotation: ?zm.Mat = null;
-
-        self.oldTransform = self.transform;
 
         switch (inputEvent) {
             .key_down => |key| {

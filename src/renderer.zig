@@ -121,24 +121,25 @@ pub const Renderer = struct {
         defer sdlRenderer.destroy();
         var texture = try SDL.createTexture(sdlRenderer, SDL.PixelFormatEnum.abgr8888, SDL.Texture.Access.streaming, self.settings.size[0], self.settings.size[1]);
 
+        var frameCounter: u64 = 0;
         mainLoop: while (true) {
             const frameStartTime = std.time.nanoTimestamp();
 
-            while (SDL.pollEvent()) |ev| {
-                switch (ev) {
-                    .quit => break :mainLoop,
-                    else => {
-                        if (scene.camera.handleInputEvent(ev)) {
-                            RenderThread.invalidationSignal = true;
-                            std.time.sleep(@as(u64, @intFromFloat(10000.0)));
-                            RenderThread.invalidationSignal = false;
-                        }
-                    },
+            if (@mod(frameCounter, 2) == 0) {
+                while (SDL.pollEvent()) |ev| {
+                    switch (ev) {
+                        .quit => break :mainLoop,
+                        else => {
+                            if (scene.camera.handleInputEvent(ev)) {
+                                RenderThread.invalidationSignal = true;
+                                std.time.sleep(@as(u64, @intFromFloat(1000.0)));
+                                RenderThread.invalidationSignal = false;
+                            }
+                        },
+                    }
                 }
             }
-
-            try sdlRenderer.setColorRGB(0xA0, 0xA0, 0xA0);
-            try sdlRenderer.clear();
+            frameCounter += 1;
 
             var pixel_data = try texture.lock(null);
             defer pixel_data.release();
@@ -166,18 +167,19 @@ pub const Renderer = struct {
                 var x: usize = 0;
                 while (x < self.settings.size[0]) : (x += 1) {
                     var i = y * self.settings.cmdSettings.width + x;
-                    var chunkCol = @divTrunc(@as(u32, @intCast(x)), self.settings.cmdSettings.chunkSize);
-                    var chunkRow = @divTrunc(@as(u32, @intCast(y)), self.settings.cmdSettings.chunkSize);
-                    var chunkIndex = chunkCol + chunkRow * self.settings.chunkCountAlongAxis[0];
-                    var chunk = self.settings.chunks[chunkIndex];
+                    const chunkCol = @divTrunc(@as(u32, @intCast(x)), self.settings.cmdSettings.chunkSize);
+                    const chunkRow = @divTrunc(@as(u32, @intCast(y)), self.settings.cmdSettings.chunkSize);
+                    const chunkIndex = chunkCol + chunkRow * self.settings.chunkCountAlongAxis[0];
+                    const chunk = self.settings.chunks[chunkIndex];
 
-                    var isChunkRendering = chunk.isProcessingReadonly;
+                    const isChunkRendering = chunk.isProcessingReadonly;
                     var isBorderingPixel = x == chunkCol * self.settings.cmdSettings.chunkSize or x == (chunkCol + 1) * (self.settings.cmdSettings.chunkSize) - 1;
                     isBorderingPixel = isBorderingPixel or y == chunkRow * self.settings.cmdSettings.chunkSize or y == (chunkRow + 1) * self.settings.cmdSettings.chunkSize - 1;
 
                     var borderColor = @Vector(3, f32){ 1.0, 0.0, 0.0 };
                     var color = borderColor;
                     if (!isChunkRendering or !isBorderingPixel or self.settings.cmdSettings.sppPerPass < 16) {
+                        //var tonemappedColor = tonemapReinhardLuminance(self.pixels[@mod(chunk.currentBufferIndex + 1, 2)][i], maxLuminance);
                         var tonemappedColor = tonemapReinhardLuminance(self.pixels[chunk.currentBufferIndex][i], maxLuminance);
                         tonemappedColor = @min(tonemappedColor, @Vector(3, f32){ 1.0, 1.0, 1.0 });
 
@@ -205,7 +207,7 @@ pub const Renderer = struct {
 
             const targetFrametime: u64 = @intFromFloat(33.333 * 1000000);
             const frameTime = std.time.nanoTimestamp() - frameStartTime;
-            print("Frametime: {d:.3}ms, fps: {d:.3}, waitTime: {d:.3}ms\n", .{ @as(f32, @floatFromInt(frameTime)) / 1000000.0, 1000000000.0 / @as(f32, @floatFromInt(frameTime)), @as(f32, @floatFromInt(@max(0, targetFrametime - frameTime))) / 1000000.0 });
+            //print("Frametime: {d:.3}ms, fps: {d:.3}, waitTime: {d:.3}ms\n", .{ @as(f32, @floatFromInt(frameTime)) / 1000000.0, 1000000000.0 / @as(f32, @floatFromInt(frameTime)), @as(f32, @floatFromInt(@max(0, targetFrametime - frameTime))) / 1000000.0 });
             std.time.sleep(@as(u64, @intCast(@max(0, targetFrametime - frameTime))));
         }
     }

@@ -73,12 +73,12 @@ pub const Scene = struct {
 pub fn devScene(allocator: std.mem.Allocator) anyerror!Scene {
     var scene = Scene.init(allocator, "devScene");
 
-    const cameraPos = @Vector(4, f32){ -1.87689530e+00, 0.54253983e+00, -4.15354937e-01, 0.0e+00 };
+    const cameraPos = @Vector(4, f32){ -2.51956725e+00, 2.25070643e+00, 4.83585977e+00, 0.0e+00 };
     const lookTarget = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
     scene.camera = Camera.init(cameraPos, lookTarget, PI / 2.0, 16.0 / 9.0, 0.0, 10.0);
 
     var defaultMat = try scene.allocator.create(DielectricMat);
-    defaultMat.* = DielectricMat.init(@Vector(3, f32){ 0.85, 0.5, 0.1 }, 1.5);
+    defaultMat.* = DielectricMat.init(@Vector(3, f32){ 0.85 * 1.2, 0.5 * 1.2, 0.1 * 1.2 }, 1.5);
     try scene.materials.append(&defaultMat.*.material);
 
     //try scene.models.append(try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/GearboxAssy/glTF/GearboxAssy.gltf"));
@@ -93,30 +93,45 @@ pub fn devScene(allocator: std.mem.Allocator) anyerror!Scene {
     //try scene.models.append(try Model.init(allocator, &defaultMat.material, "assets/box/Box.gltf"));
     //try scene.models.append(try Model.init(allocator, &defaultMat.material, "assets/suzanne/Suzanne.gltf"));
 
-    var spheres = try allocator.alloc(Sphere, 4);
+    var spheres = try allocator.alloc(Sphere, 5);
 
     const aMat = try allocator.create(EmissiveMat);
     const bMat = try allocator.create(EmissiveMat);
     const cMat = try allocator.create(EmissiveMat);
     const dMat = try allocator.create(LambertianMat);
+    const eMat = try allocator.create(EmissiveMat);
     aMat.* = EmissiveMat.init(@Vector(3, f32){ 1.0, 1.0, 1.0 });
     spheres[0] = Sphere.init(&aMat.material, @Vector(4, f32){ 0.0, 5.0, 0.0, 0.0 }, 1.0);
     bMat.* = EmissiveMat.init(@Vector(3, f32){ 0.7 * 2.0, 0.5 * 2.0, 0.1 * 2.0 });
     spheres[2] = Sphere.init(&bMat.material, @Vector(4, f32){ 4.0, 1.0, 0.0, 0.0 }, 1.0);
-    cMat.* = EmissiveMat.init(@Vector(3, f32){ 5.0, 0.0, 0.0 });
+    cMat.* = EmissiveMat.init(@Vector(3, f32){ 0.0, 0.0, 3.0 });
     spheres[1] = Sphere.init(&cMat.material, @Vector(4, f32){ -4.0, 1.0, 0.0, 0.0 }, 1.0);
     dMat.* = LambertianMat.init(@Vector(3, f32){ 0.35, 0.6, 0.2 });
     spheres[3] = Sphere.init(&dMat.material, @Vector(4, f32){ 0.0, -2005.0, 0.0, 0.0 }, 2000);
+    eMat.* = EmissiveMat.init(@Vector(3, f32){ 0.75, 0.0, 0.0 });
+    spheres[4] = Sphere.init(&eMat.material, @Vector(4, f32){ 0.0, 0.5, -1.0, 0.0 }, 0.2);
 
     try scene.primitives.append(&spheres[0].hittable);
     try scene.primitives.append(&spheres[1].hittable);
     try scene.primitives.append(&spheres[2].hittable);
     try scene.primitives.append(&spheres[3].hittable);
+    try scene.primitives.append(&spheres[4].hittable);
 
     return scene;
 }
 
 pub fn sponza(allocator: std.mem.Allocator) anyerror!Scene {
-    var scene = Scene.init(allocator, "Sponza");
+    var scene = Scene.init(allocator, "sponza");
+
+    const cameraPos = @Vector(4, f32){ -1.87689530e+00, 0.54253983e+00, -4.15354937e-01, 0.0e+00 };
+    const lookTarget = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 };
+    scene.camera = Camera.init(cameraPos, lookTarget, PI / 2.0, 16.0 / 9.0, 0.0, 10.0);
+
+    var defaultMat = try scene.allocator.create(DielectricMat);
+    defaultMat.* = DielectricMat.init(@Vector(3, f32){ 0.85 * 1.2, 0.5 * 1.2, 0.1 * 1.2 }, 3.0);
+    try scene.materials.append(&defaultMat.*.material);
+
+    try scene.models.append(try Model.init(allocator, &defaultMat.material, "assets/glTF-Sample-Models-master/2.0/Sponza/glTF/Sponza.gltf"));
+
     return scene;
 }

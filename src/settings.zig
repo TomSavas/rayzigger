@@ -14,10 +14,11 @@ pub const Settings = struct {
         benchmark: ?enum { dev, full } = null,
         targetSpp: ?u32 = null,
 
-        sppPerPass: u32 = 4,
-        maxBounces: u32 = 4,
+        sppPerPass: u32 = 1,
+        maxBounces: u32 = 8,
         gamma: f32 = 2,
-        chunkSize: u32 = 32,
+        chunkSize: u32 = 16,
+        lodLevels: u32 = 2,
 
         // For zig-args
         pub const shorthands = .{
@@ -27,6 +28,7 @@ pub const Settings = struct {
             .s = "targetSpp",
             .p = "sppPerPass",
             .c = "chunkSize",
+            .l = "lodLevels",
         };
     };
     cmdSettings: CmdSettings,
@@ -84,7 +86,7 @@ pub const Settings = struct {
                 clampedChunkSize[1] = settings.size[1] - chunkStartIndices[1];
             }
 
-            settings.chunks[chunkIndex] = Chunk.init(chunkIndex, chunkStartIndices, clampedChunkSize);
+            settings.chunks[chunkIndex] = Chunk.init(chunkIndex, chunkStartIndices, clampedChunkSize, settings.cmdSettings.lodLevels);
         }
 
         return settings;

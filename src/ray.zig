@@ -14,8 +14,8 @@ pub const Ray = struct {
 pub const ScatteredRay = struct {
     ray: Ray,
 
-    attenuation: @Vector(3, f32) = @Vector(3, f32){ 0.0, 0.0, 0.0 },
-    emissiveness: @Vector(3, f32) = @Vector(3, f32){ 0.0, 0.0, 0.0 },
+    attenuation: ?@Vector(3, f32) = null,
+    emissiveness: ?@Vector(3, f32) = null,
 };
 
 pub const Hit = struct {
