@@ -159,7 +159,7 @@ pub const Camera = struct {
                     var yDiff = self.prevMouseY - mouse.y;
 
                     if (xDiff != 0 or yDiff != 0) {
-                        mouseRotation = zm.matFromRollPitchYaw(@as(f32, @floatFromInt(-yDiff)) / 1000.0, @as(f32, @floatFromInt(-xDiff)) / 1000.0, 0.0);
+                        mouseRotation = zm.matFromRollPitchYaw(@as(f32, @floatFromInt(-yDiff)) / 2000.0, @as(f32, @floatFromInt(-xDiff)) / 2000.0, 0.0);
                     }
                 }
                 self.prevMouseX = mouse.x;
@@ -178,6 +178,8 @@ pub const Camera = struct {
 
         if (moveDir != null or mouseRotation != null) {
             self.transform.recalculateRotation(self.viewportSize, self.focusDist);
+
+            //print("Invalidating\n", .{});
             return true;
         }
 

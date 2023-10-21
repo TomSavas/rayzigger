@@ -84,7 +84,7 @@ pub const Settings = struct {
                 clampedChunkSize[1] = settings.size[1] - chunkStartIndices[1];
             }
 
-            settings.chunks[chunkIndex] = Chunk.init(chunkStartIndices, clampedChunkSize);
+            settings.chunks[chunkIndex] = Chunk.init(chunkIndex, chunkStartIndices, clampedChunkSize);
         }
 
         return settings;

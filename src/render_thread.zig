@@ -109,7 +109,8 @@ fn traceSecondaryRay(ray: *const Ray, bvh: *const BVH, remainingBounces: u32, rn
 }
 
 pub const Chunk = struct {
-    chunkTopRightPixelIndices: @Vector(2, u32),
+    index: usize,
+    chunkTopLeftPixelIndices: @Vector(2, u32),
     chunkSize: @Vector(2, u32),
 
     cameraTransforms: [2]CameraTransform,
@@ -120,11 +121,11 @@ pub const Chunk = struct {
     processed: bool,
     sampleCount: ?u32,
     isProcessingReadonly: bool,
-    justInvalidated: bool,
 
-    pub fn init(topRightPixelIndices: @Vector(2, u32), chunkSize: @Vector(2, u32)) Chunk {
+    pub fn init(index: usize, topLeftPixelIndices: @Vector(2, u32), chunkSize: @Vector(2, u32)) Chunk {
         return Chunk{
-            .chunkTopRightPixelIndices = topRightPixelIndices,
+            .index = index,
+            .chunkTopLeftPixelIndices = topLeftPixelIndices,
             .chunkSize = chunkSize,
             .cameraTransforms = .{ undefined, undefined },
             .currentBufferIndex = 0,
@@ -132,8 +133,11 @@ pub const Chunk = struct {
             .processed = false,
             .sampleCount = 0,
             .isProcessingReadonly = false,
-            .justInvalidated = false,
         };
+    }
+
+    fn coordsInChunk(self: *const Chunk, texCoords: @Vector(2, i32)) bool {
+        return !(texCoords[0] < self.chunkTopLeftPixelIndices[0] or texCoords[1] < self.chunkTopLeftPixelIndices[1] or texCoords[0] > self.chunkTopLeftPixelIndices[0] + self.chunkSize[0] or texCoords[1] > self.chunkTopLeftPixelIndices[1] + self.chunkSize[1]);
     }
 
     pub fn reprojectFromLastFrame(self: *Chunk, ctx: *RenderThreadCtx) bool {
@@ -149,15 +153,13 @@ pub const Chunk = struct {
 
         var yOffset: usize = 0;
         while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
-            const y = self.chunkTopRightPixelIndices[1] + yOffset;
+            const y = self.chunkTopLeftPixelIndices[1] + yOffset;
 
             var xOffset: usize = 0;
             while (xOffset < self.chunkSize[0]) : (xOffset += 1) {
-                const x = self.chunkTopRightPixelIndices[0] + xOffset;
+                const x = self.chunkTopLeftPixelIndices[0] + xOffset;
                 const u = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(ctx.settings.size[0]));
                 const v = @as(f32, @floatFromInt(y)) / @as(f32, @floatFromInt(ctx.settings.size[1]));
-                // TODO: this has a bug when reprojecting into another pixel. We might be using the wrong "old" camera transform
-                // and we might be sampling the wrong buffers...
                 const index = y * ctx.settings.size[0] + x;
 
                 ctx.sampleCounts[self.currentBufferIndex][index] = 0;
@@ -170,22 +172,40 @@ pub const Chunk = struct {
 
                 const oldReconstructedRay = Ray{ .origin = previousCameraTransform.origin, .dir = zm.normalize3(bvhHit.?.location - previousCameraTransform.origin) };
                 const oldUv = previousCameraTransform.uvFromRay(oldReconstructedRay);
+
                 const validOldTexCoords = oldUv[0] >= 0.0 and oldUv[0] <= 1.0 and oldUv[1] >= 0.0 and oldUv[1] <= 1.0;
+                if (!validOldTexCoords or ctx.sampleCounts[previousBufferIndex][index] < 0) {
+                    continue;
+                }
 
-                if (validOldTexCoords and ctx.sampleCounts[previousBufferIndex][index] > 0) {
-                    const oldTexCoords = @Vector(2, i32){
-                        @as(i32, @intFromFloat(oldUv[0] * @as(f32, @floatFromInt(ctx.settings.size[0])))),
-                        @as(i32, @intFromFloat(oldUv[1] * @as(f32, @floatFromInt(ctx.settings.size[1])))),
-                    };
-                    const oldIndex = @as(usize, @intCast(oldTexCoords[1] * @as(i32, @intCast(ctx.settings.size[0])) + oldTexCoords[0]));
+                const oldTexCoords = @Vector(2, i32){
+                    @as(i32, @intFromFloat(oldUv[0] * @as(f32, @floatFromInt(ctx.settings.size[0])))),
+                    @as(i32, @intFromFloat(oldUv[1] * @as(f32, @floatFromInt(ctx.settings.size[1])))),
+                };
+                const oldIndex = @as(usize, @intCast(oldTexCoords[1] * @as(i32, @intCast(ctx.settings.size[0])) + oldTexCoords[0]));
 
-                    const distDiffSq = @fabs(zm.lengthSq3(bvhHit.?.location - ctx.hitWorldLocations[previousBufferIndex][oldIndex])[0]);
-                    if (oldIndex >= 0 and oldIndex < pixelCount and distDiffSq < 0.01) {
-                        ctx.pixels[self.currentBufferIndex][index] = ctx.pixels[previousBufferIndex][oldIndex];
-                        ctx.hitWorldLocations[self.currentBufferIndex][index] = ctx.hitWorldLocations[previousBufferIndex][oldIndex];
-                        ctx.sampleCounts[self.currentBufferIndex][index] = ctx.sampleCounts[previousBufferIndex][oldIndex];
+                // TODO: this is dumb bruteforcing
+                const offsets = [_]i32{ 0, -1, 1 };
+                topOffsetLoop: for (offsets) |xOff| {
+                    for (offsets) |yOff| {
+                        const chunkCol = @as(i32, @intCast(@mod(self.index, ctx.settings.chunkCountAlongAxis[0]))) + xOff;
+                        const chunkRow = @as(i32, @intCast(@divTrunc(self.index, ctx.settings.chunkCountAlongAxis[0]))) + yOff;
+                        const newIndex = chunkCol + chunkRow * @as(i32, @intCast(ctx.settings.chunkCountAlongAxis[0]));
 
-                        reprojectedAnyPixels = true;
+                        if (newIndex > 0 and newIndex < ctx.chunks.len and ctx.chunks[@as(usize, @intCast(newIndex))].coordsInChunk(oldTexCoords)) {
+                            const correctedChunk = ctx.chunks[@as(usize, @intCast(newIndex))];
+                            const bufferIndex = @mod(correctedChunk.currentBufferIndex + 1, 2);
+
+                            const distDiffSq = @fabs(zm.lengthSq3(bvhHit.?.location - ctx.hitWorldLocations[bufferIndex][oldIndex])[0]);
+                            if (oldIndex >= 0 and oldIndex < pixelCount and distDiffSq < 0.01) {
+                                ctx.pixels[self.currentBufferIndex][index] = ctx.pixels[bufferIndex][oldIndex];
+                                ctx.hitWorldLocations[self.currentBufferIndex][index] = ctx.hitWorldLocations[bufferIndex][oldIndex];
+                                ctx.sampleCounts[self.currentBufferIndex][index] = ctx.sampleCounts[bufferIndex][oldIndex];
+
+                                reprojectedAnyPixels = true;
+                                break :topOffsetLoop;
+                            }
+                        }
                     }
                 }
             }
@@ -209,12 +229,12 @@ pub const Chunk = struct {
 
         var yOffset: usize = 0;
         topLoop: while (yOffset < self.chunkSize[1]) : (yOffset += 1) {
-            const y = self.chunkTopRightPixelIndices[1] + yOffset;
+            const y = self.chunkTopLeftPixelIndices[1] + yOffset;
 
             var xOffset: usize = 0;
             while (xOffset < self.chunkSize[0]) : (xOffset += 1) {
-                const x = self.chunkTopRightPixelIndices[0] + xOffset;
-                const u = (@as(f32, @floatFromInt(x)) + ctx.rng.float(f32)) / @as(f32, @floatFromInt(ctx.settings.size[0]));
+                const x = self.chunkTopLeftPixelIndices[0] + xOffset;
+                const u = @as(f32, @floatFromInt(x)) / @as(f32, @floatFromInt(ctx.settings.size[0]));
                 const index = y * ctx.settings.size[0] + x;
 
                 const previousSampleCount = ctx.sampleCounts[previousBufferIndex][index];
@@ -222,7 +242,7 @@ pub const Chunk = struct {
                 var sampleValue = TraceResult{ .color = @Vector(3, f32){ 0.0, 0.0, 0.0 }, .location = @Vector(4, f32){ 0.0, 0.0, 0.0, 0.0 } };
                 var sampleCount: u32 = previousSampleCount;
                 while (sampleCount < targetSampleCount) : (sampleCount += 1) {
-                    const v = (@as(f32, @floatFromInt(y)) + ctx.rng.float(f32)) / @as(f32, @floatFromInt(ctx.settings.size[1]));
+                    const v = @as(f32, @floatFromInt(y)) / @as(f32, @floatFromInt(ctx.settings.size[1]));
 
                     const ray = ctx.camera.generateRay(u, v, ctx.rng);
                     const traceResult = traceRay(&ray, &ctx.bvh, ctx.settings.cmdSettings.maxBounces, ctx.rng);
@@ -264,8 +284,6 @@ pub const RenderThreadCtx = struct {
     settings: *const Settings,
 
     shouldTerminate: bool = false,
-    invalidationSignal: bool = false,
-    uninvalidatedThreadCount: *std.atomic.Atomic(u32),
 };
 
 const SpiralChunkIterator = struct {
@@ -373,14 +391,12 @@ pub fn renderThreadFn(ctx: *RenderThreadCtx) void {
             print("Thread couldn't find a chunk to process, potentially more threads than chunks.\n", .{});
         }
 
-        if (invalidationSignal) {
-            _ = ctx.uninvalidatedThreadCount.fetchSub(1, .Monotonic);
-            while (ctx.uninvalidatedThreadCount.load(.Monotonic) > 0) {
-                for (ctx.chunks) |*chunk| {
-                    chunk.sampleCount = null;
-                }
+        // And the award for worst ~~synchronisation~~ of the century goes to... this!
+        while (invalidationSignal) {
+            for (ctx.chunks) |*chunk| {
+                chunk.sampleCount = null;
             }
-            invalidationSignal = false;
+            std.time.sleep(@as(u64, 1000.0));
         }
     }
 }
@@ -391,7 +407,6 @@ pub const RenderThreads = struct {
     rngs: []DefaultRandom,
 
     allocator: std.mem.Allocator,
-    uninvalidatedThreadCount: std.atomic.Atomic(u32),
 
     pub fn init(threadCount: u32, allocator: std.mem.Allocator, settings: *Settings, camera: *Camera, accumulatedPixels: [][]@Vector(3, f32), hitWorldLocations: [][]@Vector(4, f32), sampleCounts: [][]u32, bvh: BVH) anyerror!RenderThreads {
         var renderThreads = RenderThreads{
@@ -399,7 +414,6 @@ pub const RenderThreads = struct {
             .threads = try allocator.alloc(Thread, threadCount),
             .rngs = try allocator.alloc(DefaultRandom, threadCount),
             .allocator = allocator,
-            .uninvalidatedThreadCount = std.atomic.Atomic(u32){ .value = 0 },
         };
 
         var threadId: u32 = 0;
@@ -418,7 +432,6 @@ pub const RenderThreads = struct {
                 .bvh = bvh,
 
                 .settings = settings,
-                .uninvalidatedThreadCount = &renderThreads.uninvalidatedThreadCount,
             };
 
             renderThreads.threads[threadId] = try Thread.spawn(.{}, renderThreadFn, .{&renderThreads.ctxs[threadId]});
@@ -444,10 +457,5 @@ pub const RenderThreads = struct {
         self.allocator.free(self.ctxs);
         self.allocator.free(self.threads);
         self.allocator.free(self.rngs);
-    }
-
-    pub fn invalidate(self: *RenderThreads) void {
-        self.uninvalidatedThreadCount.store(@intCast(self.threads.len), .Monotonic);
-        invalidationSignal = true;
     }
 };

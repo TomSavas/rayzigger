@@ -122,16 +122,16 @@ pub const Renderer = struct {
         var texture = try SDL.createTexture(sdlRenderer, SDL.PixelFormatEnum.abgr8888, SDL.Texture.Access.streaming, self.settings.size[0], self.settings.size[1]);
 
         mainLoop: while (true) {
+            const frameStartTime = std.time.nanoTimestamp();
+
             while (SDL.pollEvent()) |ev| {
                 switch (ev) {
                     .quit => break :mainLoop,
                     else => {
                         if (scene.camera.handleInputEvent(ev)) {
-                            renderThreads.invalidate();
-                        } else if (ev == .key_down and ev.key_down.keycode == .p) {
-                            print("pos: {}\n", .{scene.camera.transform.origin});
-                            // TODO: potentially wrong buffer
-                            //try Ppm.outputImage(self.settings.size, self.pixels[0], self.settings.cmdSettings.gamma);
+                            RenderThread.invalidationSignal = true;
+                            std.time.sleep(@as(u64, @intFromFloat(10000.0)));
+                            RenderThread.invalidationSignal = false;
                         }
                     },
                 }
@@ -203,8 +203,10 @@ pub const Renderer = struct {
             try sdlRenderer.copy(texture, null, null);
             sdlRenderer.present();
 
-            const frametime_ms: f32 = 16.666;
-            std.time.sleep(@as(u64, @intFromFloat(frametime_ms * 1000000.0)));
+            const targetFrametime: u64 = @intFromFloat(33.333 * 1000000);
+            const frameTime = std.time.nanoTimestamp() - frameStartTime;
+            print("Frametime: {d:.3}ms, fps: {d:.3}, waitTime: {d:.3}ms\n", .{ @as(f32, @floatFromInt(frameTime)) / 1000000.0, 1000000000.0 / @as(f32, @floatFromInt(frameTime)), @as(f32, @floatFromInt(@max(0, targetFrametime - frameTime))) / 1000000.0 });
+            std.time.sleep(@as(u64, @intCast(@max(0, targetFrametime - frameTime))));
         }
     }
 
